@@ -3,6 +3,7 @@ package cloudypg
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,6 +13,49 @@ import (
 
 	"github.com/jackc/pgx/v4/pgxpool"
 )
+
+const PostgresProviderID = "postgresql"
+
+func init() {
+	datastore.JsonDataStoreProviders.Register(PostgresProviderID, &PostgreSqlJsonDataStoreFactory{})
+}
+
+type PostgreSqlJsonDataStoreFactory struct{}
+
+func (c *PostgreSqlJsonDataStoreFactory) Create(cfg interface{}) (datastore.UntypedJsonDataStore, error) {
+	config := cfg.(*PostgreSqlConfig)
+	return &PostgreSqlJsonDataStore[T]{
+		connectionString: config.GetConnectionString(),
+		table:            config.Table,
+		Database:         config.Database,
+		// OnCreate:         config.OnCreate,
+
+		ConnectionKey: pgContextKey(config.Table),
+	}, nil
+}
+
+func (c *PostgreSqlJsonDataStoreFactory) ToConfig(config map[string]interface{}) (interface{}, error) {
+	var found bool
+	cfg := &PostgreSqlConfig{}
+
+	cfg.Connection, _ = cloudy.MapKeyStr(config, "Connection", true)
+	cfg.User, _ = cloudy.MapKeyStr(config, "User", true)
+	cfg.Host, _ = cloudy.MapKeyStr(config, "Host", true)
+	cfg.Password, _ = cloudy.MapKeyStr(config, "Password", true)
+	cfg.Database, _ = cloudy.MapKeyStr(config, "Database", true)
+
+	// Check that either Connection or (user,Host,Pass, database) is present
+	if cfg.Connection != "" || (cfg.User != "" && cfg.Host != "" && cfg.Password != "" && cfg.Database != "") {
+		return nil, errors.New("connection or User,Host,Password,Database must be specified")
+	}
+
+	cfg.Table, found = cloudy.MapKeyStr(config, "Table", true)
+	if !found {
+		return nil, errors.New("table required")
+	}
+
+	return cfg, nil
+}
 
 /*
 	The PostgreSqlJsonDataStore is meant to be used with a single table. That table has the definition of:
@@ -45,6 +89,17 @@ type PostgreSqlJsonDataStore[T any] struct {
 	ConnectionKey pgContextKey
 	pool          *pgxpool.Pool
 	OnCreate      func(ctx context.Context, ds *PostgreSqlJsonDataStore[T]) error
+}
+
+type UntypedPostgreSqlJsonDataStore struct {
+	model            interface{}
+	connectionString string
+	// client           *pgx.Conn
+	Database      string
+	table         string
+	ConnectionKey pgContextKey
+	pool          *pgxpool.Pool
+	OnCreate      func(ctx context.Context, ds *UntypedPostgreSqlJsonDataStore) error
 }
 
 func NewPostgreSqlJsonDataStore[T any](ctx context.Context, config *PostgreSqlConfig) *PostgreSqlJsonDataStore[T] {

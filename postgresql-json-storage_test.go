@@ -11,7 +11,8 @@ import (
 	"testing"
 
 	"github.com/appliedres/cloudy"
-	"github.com/appliedres/cloudy/tests"
+	"github.com/appliedres/cloudy/datastore"
+	"github.com/stretchr/testify/assert"
 )
 
 // 	cmd := exec.Command("docker", "run", "--rm", "--name", "skycloud-test-postgres", "-e", "POSTGRES_PASSWORD=admin", "-d", "-p", "5432:5432", "postgres")
@@ -25,7 +26,7 @@ var pgConfig = &PostgreSqlConfig{
 
 func TestMain(m *testing.M) {
 	// Write code here to run before tests
-	created, err := tests.StartDocker("cloudy-test-postgres", []string{"-e", "POSTGRES_PASSWORD=admin", "-d", "-p", "5432:5432", "postgres"}, "")
+	created, err := cloudy.StartDocker("cloudy-test-postgres", []string{"-e", "POSTGRES_PASSWORD=admin", "-d", "-p", "5432:5432", "postgres"}, "")
 	if err != nil {
 		panic(err)
 	}
@@ -35,7 +36,7 @@ func TestMain(m *testing.M) {
 
 	// Write code here to run after tests
 	if created {
-		err = tests.ShutdownDocker("cloudy-test-postgres")
+		err = cloudy.ShutdownDocker("cloudy-test-postgres")
 		if err != nil {
 			panic(err)
 		}
@@ -47,12 +48,28 @@ func TestMain(m *testing.M) {
 
 func TestPostrgreSqlJsonDataStore(t *testing.T) {
 	ctx := cloudy.StartContext()
-	ds := NewPostgreSqlJsonDataStore[tests.TestItem](ctx, pgConfig)
-	tests.JsonDataStoreTest(t, ctx, ds)
+	ds := NewPostgreSqlJsonDataStore[datastore.TestItem](ctx, pgConfig)
+	datastore.JsonDataStoreTest(t, ctx, ds)
+}
+
+func TestPostrgreSqlJsonDataStoreDynamic(t *testing.T) {
+	ctx := cloudy.StartContext()
+
+	cfgMap := make(map[string]interface{})
+	cfgMap["DS_DRIVER"] = PostgresProviderID
+	cfgMap["DS_CONNECTION"] = pgConfig.Connection
+	cfgMap["DS_TABLE"] = pgConfig.Table
+	cfgMap["DS_DATABASE"] = pgConfig.Database
+
+	ds, err := datastore.JsonDataStoreProviders.NewFromMap(cfgMap, "DS", "DRIVER")
+	tds := datastore.NewTypedStore[datastore.TestItem](ds)
+	assert.Nil(t, err, "Not expecting an error")
+
+	datastore.JsonDataStoreTest(t, ctx, tds)
 }
 
 func TestPostrgreSqlJsonDataStoreQuery(t *testing.T) {
 	ctx := cloudy.StartContext()
-	ds := NewPostgreSqlJsonDataStore[tests.TestQueryItem](ctx, pgConfig)
-	tests.QueryJsonDataStoreTest(t, ctx, ds)
+	ds := NewPostgreSqlJsonDataStore[datastore.TestQueryItem](ctx, pgConfig)
+	datastore.QueryJsonDataStoreTest(t, ctx, ds)
 }
