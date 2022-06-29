@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
-	"time"
 
 	"github.com/appliedres/cloudy"
 	"github.com/appliedres/cloudy/datastore"
@@ -13,79 +11,82 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
-/*
-	The PostgreSqlJsonDataStore is meant to be used with a single table. That table has the definition of:
-	ID: varchar2(30) PRIMARY KEY, DATA : jso
+// const PostgresProviderID = "postgresql"
 
-*/
-type pgContextKey string
+// func init() {
+// 	datastore.JsonDataStoreProviders.Register(PostgresProviderID, &PostgreSqlJsonDataStoreFactory{})
+// }
 
-type PostgreSqlConfig struct {
-	Table      string
-	Connection string
-	User       string
-	Host       string
-	Password   string
-	Database   string
-	// OnCreate   func(ctx context.Context, ds datastore.JsonDataStore[T]) error
+// type PostgreSqlJsonDataStoreFactory struct{}
+
+// func (c *PostgreSqlJsonDataStoreFactory) Create(cfg interface{}) (datastore.UntypedJsonDataStore, error) {
+// 	config := cfg.(*PostgreSqlConfig)
+// 	return &UntypedPostgreSqlJsonDataStore{
+// 		connectionString: config.GetConnectionString(),
+// 		table:            config.Table,
+// 		Database:         config.Database,
+// 		// OnCreate:         config.OnCreate,
+
+// 		ConnectionKey: pgContextKey(config.Table),
+// 	}, nil
+// }
+
+// func (c *PostgreSqlJsonDataStoreFactory) ToConfig(config map[string]interface{}) (interface{}, error) {
+// 	var found bool
+// 	cfg := &PostgreSqlConfig{}
+
+// 	cfg.Connection, _ = cloudy.MapKeyStr(config, "Connection", true)
+// 	cfg.User, _ = cloudy.MapKeyStr(config, "User", true)
+// 	cfg.Host, _ = cloudy.MapKeyStr(config, "Host", true)
+// 	cfg.Password, _ = cloudy.MapKeyStr(config, "Password", true)
+// 	cfg.Database, _ = cloudy.MapKeyStr(config, "Database", true)
+
+// 	// Check that either Connection or (user,Host,Pass, database) is present
+// 	if cfg.Connection != "" || (cfg.User != "" && cfg.Host != "" && cfg.Password != "" && cfg.Database != "") {
+// 		return nil, errors.New("connection or User,Host,Password,Database must be specified")
+// 	}
+
+// 	cfg.Table, found = cloudy.MapKeyStr(config, "Table", true)
+// 	if !found {
+// 		return nil, errors.New("table required")
+// 	}
+
+// 	return cfg, nil
+// }
+
+type UntypedPostgreSqlConfig struct {
+	PostgreSqlConfig
+	Model interface{}
+	// OnCreate   func(ctx context.Context, ds datastore.JsonDataStore) error
 }
 
-func (cfg *PostgreSqlConfig) GetConnectionString() string {
-	if cfg.Connection != "" {
-		return cfg.Connection
-	}
-	return fmt.Sprintf("postgres://%v:%v@%v:5432/%v", cfg.User, cfg.Password, cfg.Host, cfg.Database)
-}
-
-func ConfigFromMap(m map[string]interface{}) (*PostgreSqlConfig, error) {
-	user, _ := cloudy.EnvKeyStr(m, "user")
-	password, _ := cloudy.EnvKeyStr(m, "password")
-	host, _ := cloudy.EnvKeyStr(m, "host")
-	database, _ := cloudy.EnvKeyStr(m, "database")
-
-	cfg := &PostgreSqlConfig{}
-	cfg.User = user
-	cfg.Password = password
-	cfg.Host = host
-	cfg.Database = database
-
-	return cfg, nil
-}
-
-func (cfg *PostgreSqlConfig) ForTable(table string) *PostgreSqlConfig {
-	return &PostgreSqlConfig{
-		Table:      table,
-		User:       cfg.User,
-		Password:   cfg.Password,
-		Host:       cfg.Host,
-		Database:   cfg.Database,
-		Connection: cfg.Connection,
-	}
-}
-
-type PostgreSqlJsonDataStore[T any] struct {
+type UntypedPostgreSqlJsonDataStore struct {
+	model            interface{}
 	connectionString string
 	// client           *pgx.Conn
 	Database      string
 	table         string
 	ConnectionKey pgContextKey
 	pool          *pgxpool.Pool
-	OnCreate      func(ctx context.Context, ds *PostgreSqlJsonDataStore[T]) error
+	OnCreate      func(ctx context.Context, ds *UntypedPostgreSqlJsonDataStore) error
+	Model         interface{}
 }
 
-func NewPostgreSqlJsonDataStore[T any](ctx context.Context, config *PostgreSqlConfig) *PostgreSqlJsonDataStore[T] {
+func NewUntypedPostgreSqlJsonDataStore(ctx context.Context, config *UntypedPostgreSqlConfig) *UntypedPostgreSqlJsonDataStore {
 	// Generate Conne
-	return &PostgreSqlJsonDataStore[T]{
+	return &UntypedPostgreSqlJsonDataStore{
 		connectionString: config.GetConnectionString(),
 		table:            config.Table,
 		Database:         config.Database,
+		Model:            config.Model,
 		// OnCreate:         config.OnCreate,
 
 		ConnectionKey: pgContextKey(config.Table),
 	}
 }
 
-func (m *PostgreSqlJsonDataStore[T]) Open(ctx context.Context, config interface{}) error {
+//SAME
+func (m *UntypedPostgreSqlJsonDataStore) Open(ctx context.Context, config interface{}) error {
 	cloudy.Info(ctx, "Openning Postgres %v", m.table)
 	conn, err := m.checkConnection(ctx)
 	m.returnConnection(ctx, conn)
@@ -100,7 +101,8 @@ func (m *PostgreSqlJsonDataStore[T]) Open(ctx context.Context, config interface{
 //
 // TODO: Determine if this should be safe to call multiple times. If
 //       so then we need a reference counter or something
-func (m *PostgreSqlJsonDataStore[T]) NewConnectionContext(ctx context.Context) (context.Context, error) {
+// SAME
+func (m *UntypedPostgreSqlJsonDataStore) NewConnectionContext(ctx context.Context) (context.Context, error) {
 	// See if there is already a connection
 	obj := ctx.Value(m.ConnectionKey)
 	if obj != nil {
@@ -116,7 +118,7 @@ func (m *PostgreSqlJsonDataStore[T]) NewConnectionContext(ctx context.Context) (
 	return context.WithValue(ctx, key, conn), nil
 }
 
-func (m *PostgreSqlJsonDataStore[T]) ReturnConnectionContext(ctx context.Context) {
+func (m *UntypedPostgreSqlJsonDataStore) ReturnConnectionContext(ctx context.Context) {
 	// Check to see if there is a connection in the context. If not then add one
 	obj := ctx.Value(m.ConnectionKey)
 	if obj != nil {
@@ -125,7 +127,7 @@ func (m *PostgreSqlJsonDataStore[T]) ReturnConnectionContext(ctx context.Context
 	}
 }
 
-func (m *PostgreSqlJsonDataStore[T]) Close(ctx context.Context) error {
+func (m *UntypedPostgreSqlJsonDataStore) Close(ctx context.Context) error {
 	if m.pool != nil {
 		m.pool.Close()
 	}
@@ -134,7 +136,7 @@ func (m *PostgreSqlJsonDataStore[T]) Close(ctx context.Context) error {
 
 // Save an item to the MongoDB. This is implemented as an Upsert to this will work
 // for new items as well as updates.
-func (m *PostgreSqlJsonDataStore[T]) Save(ctx context.Context, item *T, key string) error {
+func (m *UntypedPostgreSqlJsonDataStore) Save(ctx context.Context, item interface{}, key string) error {
 	conn, err := m.checkConnection(ctx)
 	if err != nil {
 		return err
@@ -155,7 +157,7 @@ func (m *PostgreSqlJsonDataStore[T]) Save(ctx context.Context, item *T, key stri
 	return nil
 }
 
-func (m *PostgreSqlJsonDataStore[T]) Get(ctx context.Context, key string) (*T, error) {
+func (m *UntypedPostgreSqlJsonDataStore) Get(ctx context.Context, key string) (interface{}, error) {
 	conn, err := m.checkConnection(ctx)
 	if err != nil {
 		return nil, err
@@ -170,7 +172,7 @@ func (m *PostgreSqlJsonDataStore[T]) Get(ctx context.Context, key string) (*T, e
 
 	defer rows.Close()
 	if rows.Next() {
-		var instance T
+		instance := cloudy.NewInstance(m.Model)
 		err = rows.Scan(&instance)
 		if err != nil {
 			return nil, cloudy.Error(ctx, "Error scaning into struct : %v", err)
@@ -181,7 +183,7 @@ func (m *PostgreSqlJsonDataStore[T]) Get(ctx context.Context, key string) (*T, e
 	}
 }
 
-func (m *PostgreSqlJsonDataStore[T]) GetAll(ctx context.Context) ([]*T, error) {
+func (m *UntypedPostgreSqlJsonDataStore) GetAll(ctx context.Context) ([]interface{}, error) {
 	conn, err := m.checkConnection(ctx)
 	if err != nil {
 		return nil, err
@@ -194,11 +196,11 @@ func (m *PostgreSqlJsonDataStore[T]) GetAll(ctx context.Context) ([]*T, error) {
 		return nil, cloudy.Error(ctx, "Error querying database : %v", err)
 	}
 
-	var rtn []*T
+	var rtn []interface{}
 
 	defer rows.Close()
 	for rows.Next() {
-		var instance T
+		instance := cloudy.NewInstance(m.Model)
 		err = rows.Scan(&instance)
 		if err != nil {
 			return nil, cloudy.Error(ctx, "Error scaning into struct : %v", err)
@@ -209,7 +211,7 @@ func (m *PostgreSqlJsonDataStore[T]) GetAll(ctx context.Context) ([]*T, error) {
 	return rtn, nil
 }
 
-func (m *PostgreSqlJsonDataStore[T]) Delete(ctx context.Context, key string) error {
+func (m *UntypedPostgreSqlJsonDataStore) Delete(ctx context.Context, key string) error {
 	conn, err := m.checkConnection(ctx)
 	if err != nil {
 		return err
@@ -224,7 +226,7 @@ func (m *PostgreSqlJsonDataStore[T]) Delete(ctx context.Context, key string) err
 	return nil
 }
 
-func (m *PostgreSqlJsonDataStore[T]) Exists(ctx context.Context, key string) (bool, error) {
+func (m *UntypedPostgreSqlJsonDataStore) Exists(ctx context.Context, key string) (bool, error) {
 	conn, err := m.checkConnection(ctx)
 	if err != nil {
 		return false, err
@@ -245,7 +247,7 @@ func (m *PostgreSqlJsonDataStore[T]) Exists(ctx context.Context, key string) (bo
 	}
 }
 
-func (m *PostgreSqlJsonDataStore[T]) returnConnection(ctx context.Context, conn *pgxpool.Conn) {
+func (m *UntypedPostgreSqlJsonDataStore) returnConnection(ctx context.Context, conn *pgxpool.Conn) {
 	if conn == nil {
 		fmt.Println("RETURNING NIL CONNECTION")
 		return
@@ -260,7 +262,7 @@ func (m *PostgreSqlJsonDataStore[T]) returnConnection(ctx context.Context, conn 
 	conn.Release()
 }
 
-func (m *PostgreSqlJsonDataStore[T]) checkConnection(ctx context.Context) (*pgxpool.Conn, error) {
+func (m *UntypedPostgreSqlJsonDataStore) checkConnection(ctx context.Context) (*pgxpool.Conn, error) {
 	var conn *pgxpool.Conn
 	var err error
 
@@ -335,7 +337,7 @@ func (m *PostgreSqlJsonDataStore[T]) checkConnection(ctx context.Context) (*pgxp
 	return conn, nil
 }
 
-func (m *PostgreSqlJsonDataStore[T]) Query(ctx context.Context, query *datastore.SimpleQuery) ([]*T, error) {
+func (m *UntypedPostgreSqlJsonDataStore) Query(ctx context.Context, query *datastore.SimpleQuery) ([]interface{}, error) {
 	conn, err := m.checkConnection(ctx)
 	if err != nil {
 		return nil, err
@@ -350,143 +352,12 @@ func (m *PostgreSqlJsonDataStore[T]) Query(ctx context.Context, query *datastore
 	}
 
 	defer rows.Close()
-	var rtn []*T
+	var rtn []interface{}
 	for rows.Next() {
-		var model T
+		model := cloudy.NewInstance(m.Model)
 		rows.Scan(&model)
 		rtn = append(rtn, &model)
 	}
 
 	return rtn, nil
-}
-
-type PgQueryConverter struct {
-}
-
-func (qc *PgQueryConverter) Convert(c *datastore.SimpleQuery, table string) string {
-	where := qc.ConvertConditionGroup(c.Conditions)
-	sort := qc.ConvertSort(c.SortBy)
-
-	sql := qc.ConvertSelect(c, table)
-	if where != "" {
-		sql = sql + " WHERE " + where
-	}
-	if sort != "" {
-		sql = sql + " ORDER BY " + sort
-	}
-	return sql
-}
-
-func (qc *PgQueryConverter) ConvertSelect(c *datastore.SimpleQuery, table string) string {
-	str := "SELECT "
-	if len(c.Colums) == 0 {
-		str += " data"
-	} else {
-		var jsonQuery []string
-		for _, col := range c.Colums {
-			jsonQuery = append(jsonQuery, fmt.Sprintf("data ->> '%v' as \"%v\"", col, col))
-		}
-		str += strings.Join(jsonQuery, ", ")
-	}
-
-	if c.Size > 0 {
-		str = fmt.Sprintf("%v LIMIT %v", str, c.Size)
-	}
-
-	if c.Offset > 0 {
-		str = fmt.Sprintf("%v OFFSET %v", str, c.Offset)
-	}
-
-	str += " FROM " + table
-	return str
-}
-
-func (qc *PgQueryConverter) ConvertSort(sortbys []*datastore.SortBy) string {
-	if len(sortbys) == 0 {
-		return ""
-	}
-	var sorts []string
-	for _, sortBy := range sortbys {
-		sort := qc.ConvertASort(sortBy)
-		if sort != "" {
-			sorts = append(sorts, sort)
-		}
-	}
-	return strings.Join(sorts, ", ")
-}
-func (qc *PgQueryConverter) ConvertASort(c *datastore.SortBy) string {
-	if c.Descending {
-		return c.Field + " DESC"
-	} else {
-		return c.Field + "ASC"
-	}
-}
-
-func (qc *PgQueryConverter) ConvertCondition(c *datastore.SimpleQueryCondition) string {
-	switch c.Type {
-	case "eq":
-		return fmt.Sprintf("(data->>'%v') = '%v'", c.Data[0], c.Data[1])
-	case "neq":
-		return fmt.Sprintf("(data->>'%v') != '%v'", c.Data[0], c.Data[1])
-	case "between":
-		return fmt.Sprintf("(data->>'%v')::numeric BETWEEN %v AND %v", c.Data[0], c.Data[1], c.Data[2])
-	case "lt":
-		return fmt.Sprintf("(data->>'%v')::numeric < %v", c.Data[0], c.Data[1])
-	case "lte":
-		return fmt.Sprintf("(data->>'%v')::numeric  <= %v", c.Data[0], c.Data[1])
-	case "gt":
-		return fmt.Sprintf("(data->>'%v')::numeric  > %v", c.Data[0], c.Data[1])
-	case "gte":
-		return fmt.Sprintf("(data->>'%v')::numeric  >= %v", c.Data[0], c.Data[1])
-	case "before":
-		val := c.GetDate("value")
-		if !val.IsZero() {
-			timestr := val.UTC().Format(time.RFC3339)
-			// return fmt.Sprintf("(data->'%v')::timestamptz < '%v'", c.Data[0], timestr)
-			return fmt.Sprintf("to_date((data->>'%v'), 'YYYY-MM-DDTHH24:MI:SS.MSZ') < '%v'", c.Data[0], timestr)
-		}
-	case "after":
-		val := c.GetDate("value")
-		if !val.IsZero() {
-			timestr := val.UTC().Format(time.RFC3339)
-			// return fmt.Sprintf("(data->'%v')::timestamptz > '%v'", c.Data[0], timestr)
-			return fmt.Sprintf("to_date((data->>'%v'), 'YYYY-MM-DDTHH24:MI:SS.MSZ') > '%v'", c.Data[0], timestr)
-		}
-	case "?":
-		return fmt.Sprintf("(data->>'%v')::numeric  ? '%v'", c.Data[0], c.Data[1])
-	case "contains":
-		return fmt.Sprintf("(data->'%v')::jsonb ? '%v'", c.Data[0], c.Data[1])
-	case "includes":
-		values := c.GetStringArr("value")
-		var xformed []string
-		for _, v := range values {
-			xformed = append(xformed, fmt.Sprintf("'%v'", v))
-		}
-		if values != nil {
-			return fmt.Sprintf("(data->>'%v') in (%v)", c.Data[0], strings.Join(xformed, ","))
-		}
-	}
-	return "UNKNOWN"
-}
-
-func (qc *PgQueryConverter) ConvertConditionGroup(cg *datastore.SimpleQueryConditionGroup) string {
-	if len(cg.Conditions) == 0 && len(cg.Groups) == 0 {
-		return ""
-	}
-
-	var conditionStr []string
-	for _, c := range cg.Conditions {
-		conditionStr = append(conditionStr, qc.ConvertCondition(c))
-	}
-	for _, c := range cg.Groups {
-		result := qc.ConvertConditionGroup(c)
-		if result != "" {
-			conditionStr = append(conditionStr, "( "+result+" )")
-		}
-	}
-	return strings.Join(conditionStr, " "+cg.Operator+" ")
-}
-
-func (qc *PgQueryConverter) ToColumnName(name string) string {
-	return "data ->> " + name
 }
