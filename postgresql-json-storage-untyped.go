@@ -31,7 +31,7 @@ import (
 // 	}, nil
 // }
 
-// func (c *PostgreSqlJsonDataStoreFactory) ToConfig(config map[string]interface{}) (interface{}, error) {
+// func (c *PostgreSqlJsonDataStoreFactory) FromEnv(env *cloudy.SegmentedEnvironment) (interface{}, error) {
 // 	var found bool
 // 	cfg := &PostgreSqlConfig{}
 
