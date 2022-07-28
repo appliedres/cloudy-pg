@@ -303,12 +303,13 @@ func (m *PostgreSqlJsonDataStore[T]) checkConnection(ctx context.Context) (*pgxp
 	}
 
 	// check that our table is there. If not then go ahead and add it
+	tblName := strings.ToLower(m.table)
 	sqlTableExists := fmt.Sprintf(`
 		SELECT * 
 		FROM information_schema.tables 
 		WHERE 
 		  table_schema = 'public' AND 
-		  table_name = '%v';`, m.table)
+		  table_name = '%v';`, tblName)
 
 	rows, err := conn.Query(ctx, sqlTableExists)
 	if err != nil {
