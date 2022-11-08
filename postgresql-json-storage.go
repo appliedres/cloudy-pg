@@ -166,24 +166,32 @@ func (m *PostgreSqlJsonDataStore[T]) Save(ctx context.Context, item *T, key stri
 }
 
 func (m *PostgreSqlJsonDataStore[T]) Get(ctx context.Context, key string) (*T, error) {
+	cloudy.Info(ctx, "PostgreSqlJsonDataStore.Get connecting")
+
 	conn, err := m.checkConnection(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer m.returnConnection(ctx, conn)
 
+	cloudy.Info(ctx, "PostgreSqlJsonDataStore.Get checking data column from table: %s", m.table)
+
 	sqlExists := fmt.Sprintf(`SELECT data FROM %v where ID=$1`, m.table)
 	rows, err := conn.Query(ctx, sqlExists, key)
 	if err != nil {
-		return nil, cloudy.Error(ctx, "Error querying database : %v", err)
+		_ = cloudy.Error(ctx, "PostgreSqlJsonDataStore.Get Error: db connection string: %s", SanitizeConnectionString(m.connectionString))
+		_ = cloudy.Error(ctx, "PostgreSqlJsonDataStore.Get Error: SQL: %s", sqlExists)
+		return nil, cloudy.Error(ctx, "PostgreSqlJsonDataStore.Get Error querying database : %v", err)
 	}
+
+	cloudy.Info(ctx, "PostgreSqlJsonDataStore.Get fetching results")
 
 	defer rows.Close()
 	if rows.Next() {
 		var instance T
 		err = rows.Scan(&instance)
 		if err != nil {
-			return nil, cloudy.Error(ctx, "Error scaning into struct : %v", err)
+			return nil, cloudy.Error(ctx, "PostgreSqlJsonDataStore.Get Error scaning into struct : %v", err)
 		}
 		return &instance, nil
 	} else {
