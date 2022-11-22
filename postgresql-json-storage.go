@@ -14,9 +14,8 @@ import (
 )
 
 /*
-	The PostgreSqlJsonDataStore is meant to be used with a single table. That table has the definition of:
-	ID: varchar2(30) PRIMARY KEY, DATA : jso
-
+The PostgreSqlJsonDataStore is meant to be used with a single table. That table has the definition of:
+ID: varchar2(30) PRIMARY KEY, DATA : jso
 */
 type pgContextKey string
 
@@ -34,12 +33,14 @@ func (cfg *PostgreSqlConfig) GetConnectionString() string {
 	if cfg.Connection != "" {
 		return cfg.Connection
 	}
+
 	return fmt.Sprintf("postgres://%v:%v@%v:5432/%v", cfg.User, cfg.Password, cfg.Host, cfg.Database)
 }
 
 func ConfigFromMap(m map[string]interface{}) (*PostgreSqlConfig, error) {
 	user, _ := cloudy.EnvKeyStr(m, "user")
 	password, _ := cloudy.EnvKeyStr(m, "password")
+	password = strings.TrimSpace(password)
 	host, _ := cloudy.EnvKeyStr(m, "host")
 	database, _ := cloudy.EnvKeyStr(m, "database")
 
@@ -56,6 +57,7 @@ func ConfigFromEnv(env *cloudy.SegmentedEnvironment) (*PostgreSqlConfig, error) 
 	cfg := &PostgreSqlConfig{}
 	cfg.User = env.Force("USER")
 	cfg.Password = env.Force("PASSWORD")
+	cfg.Password = strings.TrimSpace(cfg.Password)
 	cfg.Host = env.Force("HOST")
 	cfg.Database, _ = env.Default("DATABASE", "postgres")
 
@@ -109,7 +111,8 @@ func (m *PostgreSqlJsonDataStore[T]) Open(ctx context.Context, config interface{
 // If you do this you must explicitly end the connection.
 //
 // TODO: Determine if this should be safe to call multiple times. If
-//       so then we need a reference counter or something
+//
+//	so then we need a reference counter or something
 func (m *PostgreSqlJsonDataStore[T]) NewConnectionContext(ctx context.Context) (context.Context, error) {
 	// See if there is already a connection
 	obj := ctx.Value(m.ConnectionKey)
@@ -276,6 +279,12 @@ func (m *PostgreSqlJsonDataStore[T]) returnConnection(ctx context.Context, conn 
 	}
 
 	conn.Release()
+}
+
+func (m *PostgreSqlJsonDataStore[T]) Check(ctx context.Context) error {
+	c, err := m.checkConnection(ctx)
+	m.returnConnection(ctx, c)
+	return err
 }
 
 func (m *PostgreSqlJsonDataStore[T]) checkConnection(ctx context.Context) (*pgxpool.Conn, error) {
