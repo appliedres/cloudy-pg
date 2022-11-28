@@ -31,7 +31,7 @@ import (
 // 	}, nil
 // }
 
-// func (c *PostgreSqlJsonDataStoreFactory) FromEnv(env *cloudy.SegmentedEnvironment) (interface{}, error) {
+// func (c *PostgreSqlJsonDataStoreFactory) FromEnv(env *cloudy.Environment) (interface{}, error) {
 // 	var found bool
 // 	cfg := &PostgreSqlConfig{}
 
@@ -85,7 +85,7 @@ func NewUntypedPostgreSqlJsonDataStore(ctx context.Context, config *UntypedPostg
 	}
 }
 
-//SAME
+// SAME
 func (m *UntypedPostgreSqlJsonDataStore) Open(ctx context.Context, config interface{}) error {
 	cloudy.Info(ctx, "Openning Postgres %v", m.table)
 	conn, err := m.checkConnection(ctx)
@@ -100,7 +100,9 @@ func (m *UntypedPostgreSqlJsonDataStore) Open(ctx context.Context, config interf
 // If you do this you must explicitly end the connection.
 //
 // TODO: Determine if this should be safe to call multiple times. If
-//       so then we need a reference counter or something
+//
+//	so then we need a reference counter or something
+//
 // SAME
 func (m *UntypedPostgreSqlJsonDataStore) NewConnectionContext(ctx context.Context) (context.Context, error) {
 	// See if there is already a connection

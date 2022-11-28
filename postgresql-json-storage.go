@@ -53,13 +53,13 @@ func ConfigFromMap(m map[string]interface{}) (*PostgreSqlConfig, error) {
 	return cfg, nil
 }
 
-func ConfigFromEnv(env *cloudy.SegmentedEnvironment) (*PostgreSqlConfig, error) {
+func ConfigFromEnv(env *cloudy.Environment) (*PostgreSqlConfig, error) {
 	cfg := &PostgreSqlConfig{}
 	cfg.User = env.Force("USER")
 	cfg.Password = env.Force("PASSWORD")
 	cfg.Password = strings.TrimSpace(cfg.Password)
 	cfg.Host = env.Force("HOST")
-	cfg.Database, _ = env.Default("DATABASE", "postgres")
+	cfg.Database = env.Default("DATABASE", "postgres")
 
 	return cfg, nil
 }
