@@ -159,7 +159,8 @@ func (m *PostgreSqlJsonDataStore[T]) Save(ctx context.Context, item *T, key stri
 		return cloudy.Error(ctx, "Error marshalling item into json : %v", err)
 	}
 
-	cloudy.Info(ctx, "Writing to the database: %v", string(modelJson))
+	// Not writing to cloudy to prevent build log duplication
+	fmt.Printf("Writing to the database: %v\n", string(modelJson))
 
 	sqlUpsert := fmt.Sprintf(`INSERT INTO %v (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data=$2;`, m.table)
 	_, err = conn.Exec(ctx, sqlUpsert, key, modelJson)
