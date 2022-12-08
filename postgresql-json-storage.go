@@ -172,7 +172,7 @@ func (m *PostgreSqlJsonDataStore[T]) Save(ctx context.Context, item *T, key stri
 }
 
 func (m *PostgreSqlJsonDataStore[T]) Get(ctx context.Context, key string) (*T, error) {
-	cloudy.Info(ctx, "PostgreSqlJsonDataStore.Get connecting")
+	// cloudy.Info(ctx, "PostgreSqlJsonDataStore.Get connecting")
 
 	conn, err := m.checkConnection(ctx)
 	if err != nil {
@@ -180,7 +180,7 @@ func (m *PostgreSqlJsonDataStore[T]) Get(ctx context.Context, key string) (*T, e
 	}
 	defer m.returnConnection(ctx, conn)
 
-	cloudy.Info(ctx, "PostgreSqlJsonDataStore.Get checking data column from table: %s", m.table)
+	// cloudy.Info(ctx, "PostgreSqlJsonDataStore.Get checking data column from table: %s", m.table)
 
 	sqlExists := fmt.Sprintf(`SELECT data FROM %v where ID=$1`, m.table)
 	rows, err := conn.Query(ctx, sqlExists, key)
@@ -190,7 +190,7 @@ func (m *PostgreSqlJsonDataStore[T]) Get(ctx context.Context, key string) (*T, e
 		return nil, cloudy.Error(ctx, "PostgreSqlJsonDataStore.Get Error querying database : %v", err)
 	}
 
-	cloudy.Info(ctx, "PostgreSqlJsonDataStore.Get fetching results")
+	// cloudy.Info(ctx, "PostgreSqlJsonDataStore.Get fetching results")
 
 	defer rows.Close()
 	if rows.Next() {
