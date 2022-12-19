@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
-// const PostgresProviderID = "postgresql"
+const PostgresProviderID = "postgresql"
 
 // func init() {
 // 	datastore.JsonDataStoreProviders.Register(PostgresProviderID, &PostgreSqlJsonDataStoreFactory{})
