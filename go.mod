@@ -2,10 +2,8 @@ module github.com/appliedres/cloudy-pg
 
 go 1.19
 
-replace github.com/appliedres/cloudy => ../cloudy
-
 require (
-	github.com/appliedres/cloudy v0.0.4
+	github.com/appliedres/cloudy v0.0.5-dev.1
 	github.com/jackc/pgx/v4 v4.17.2
 	github.com/stretchr/testify v1.8.1
 )
