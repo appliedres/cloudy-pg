@@ -98,7 +98,7 @@ func NewPostgreSqlJsonDataStore[T any](ctx context.Context, config *PostgreSqlCo
 }
 
 func (m *PostgreSqlJsonDataStore[T]) Open(ctx context.Context, config interface{}) error {
-	cloudy.Info(ctx, "Openning Postgres %v", m.table)
+	cloudy.Info(ctx, "Openning PostgreSqlJsonDataStore  %v", m.table)
 	conn, err := m.checkConnection(ctx)
 	m.returnConnection(ctx, conn)
 
@@ -206,6 +206,8 @@ func (m *PostgreSqlJsonDataStore[T]) Get(ctx context.Context, key string) (*T, e
 }
 
 func (m *PostgreSqlJsonDataStore[T]) GetAll(ctx context.Context) ([]*T, error) {
+	cloudy.Info(ctx, "PostgreSqlJsonDataStore.GetAll %s", m.table)
+
 	conn, err := m.checkConnection(ctx)
 	if err != nil {
 		return nil, err
@@ -228,6 +230,33 @@ func (m *PostgreSqlJsonDataStore[T]) GetAll(ctx context.Context) ([]*T, error) {
 			return nil, cloudy.Error(ctx, "Error scaning into struct : %v", err)
 		}
 		rtn = append(rtn, &instance)
+	}
+
+	if len(rtn) == 0 {
+		cloudy.Info(ctx, "PostgreSqlJsonDataStore.GetAll %s is empty. Attempting to re-initialize", m.table)
+
+		if m.OnCreate != nil {
+			err := m.OnCreate(ctx, m)
+			if err != nil {
+				_ = cloudy.Error(ctx, "Unable to initialize table: %v, %v\n", m.table, err)
+				return rtn, nil
+			}
+
+			newRtn, err := m.GetAll(ctx)
+			if err != nil {
+				_ = cloudy.Error(ctx, "Unable to getall for table: %v, %v\n", m.table, err)
+				return rtn, nil
+			}
+
+			if len(newRtn) == 0 {
+				cloudy.Info(ctx, "table %s is still empty", m.table)
+				return rtn, nil
+			}
+
+			return newRtn, nil
+		} else {
+			cloudy.Info(ctx, "table %s has no oncreate function", m.table)
+		}
 	}
 
 	return rtn, nil

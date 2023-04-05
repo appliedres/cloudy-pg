@@ -87,7 +87,7 @@ func NewUntypedPostgreSqlJsonDataStore(ctx context.Context, config *UntypedPostg
 
 // SAME
 func (m *UntypedPostgreSqlJsonDataStore) Open(ctx context.Context, config interface{}) error {
-	cloudy.Info(ctx, "Openning Postgres %v", m.table)
+	cloudy.Info(ctx, "Openning UntypedPostgreSqlJsonDataStore %v", m.table)
 	conn, err := m.checkConnection(ctx)
 	m.returnConnection(ctx, conn)
 
