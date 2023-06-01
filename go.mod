@@ -5,7 +5,7 @@ go 1.19
 replace github.com/appliedres/cloudy => ../cloudy
 
 require (
-	github.com/appliedres/cloudy v0.0.7
+	github.com/appliedres/cloudy v0.0.11
 	github.com/jackc/pgx/v4 v4.17.2
 	github.com/stretchr/testify v1.8.2
 )
