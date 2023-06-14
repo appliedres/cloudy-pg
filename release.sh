@@ -133,10 +133,10 @@ else
 fi
 
 if [[ $upgrade == 'yes' ]]; then
-    update go-skycloud
     update user-api
     update folders-api
     update cac-api
+    update go-arkloud
 
 else 
     echo "Client update skipped"
