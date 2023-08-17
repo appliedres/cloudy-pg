@@ -525,6 +525,8 @@ func (qc *PgQueryConverter) ConvertCondition(c *datastore.SimpleQueryCondition) 
 		if values != nil {
 			return fmt.Sprintf("(data->>'%v') in (%v)", c.Data[0], strings.Join(xformed, ","))
 		}
+	case "null":
+		return fmt.Sprintf("(data->'%v') IS NULL", c.Data[0])
 	}
 	return "UNKNOWN"
 }
