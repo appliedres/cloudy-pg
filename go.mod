@@ -3,7 +3,7 @@ module github.com/appliedres/cloudy-pg
 go 1.19
 
 require (
-	github.com/appliedres/cloudy v0.0.22
+	github.com/appliedres/cloudy v0.0.23
 	github.com/jackc/pgx/v4 v4.17.2
 	github.com/stretchr/testify v1.8.2
 )
