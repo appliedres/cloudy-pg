@@ -55,13 +55,14 @@ func TestPostrgreSqlJsonDataStore(t *testing.T) {
 func TestPostrgreSqlJsonDataStoreDynamic(t *testing.T) {
 	ctx := cloudy.StartContext()
 
-	cfgMap := make(map[string]interface{})
-	cfgMap["DS_DRIVER"] = PostgresProviderID
-	cfgMap["DS_CONNECTION"] = pgConfig.Connection
-	cfgMap["DS_TABLE"] = pgConfig.Table
-	cfgMap["DS_DATABASE"] = pgConfig.Database
+	menv := cloudy.NewMapEnvironment()
+	menv.Set("DS_DRIVER", PostgresProviderID)
+	menv.Set("DS_CONNECTION", pgConfig.Connection)
+	menv.Set("DS_TABLE", pgConfig.Table)
+	menv.Set("DS_DATABASE", pgConfig.Database)
+	env := cloudy.NewEnvironment(cloudy.NewTieredEnvironment(menv))
 
-	ds, err := datastore.JsonDataStoreProviders.NewFromMap(cfgMap, "DS", "DRIVER")
+	ds, err := datastore.JsonDataStoreProviders.NewFromEnv(env, "DRIVER")
 	tds := datastore.NewTypedStore[datastore.TestItem](ds)
 	assert.Nil(t, err, "Not expecting an error")
 

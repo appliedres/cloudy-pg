@@ -26,7 +26,8 @@ type PostgreSqlConfig struct {
 	Host       string
 	Password   string
 	Database   string
-	// OnCreate   func(ctx context.Context, ds datastore.JsonDataStore[T]) error
+	Port       uint16
+	// onCreateFn   func(ctx context.Context, ds datastore.JsonDataStore[T]) error
 }
 
 func (cfg *PostgreSqlConfig) GetConnectionString() string {
@@ -82,7 +83,7 @@ type PostgreSqlJsonDataStore[T any] struct {
 	table         string
 	ConnectionKey pgContextKey
 	pool          *pgxpool.Pool
-	OnCreate      func(ctx context.Context, ds *PostgreSqlJsonDataStore[T]) error
+	onCreateFn    func(ctx context.Context, ds datastore.JsonDataStore[T]) error
 }
 
 func NewPostgreSqlJsonDataStore[T any](ctx context.Context, config *PostgreSqlConfig) *PostgreSqlJsonDataStore[T] {
@@ -91,7 +92,7 @@ func NewPostgreSqlJsonDataStore[T any](ctx context.Context, config *PostgreSqlCo
 		connectionString: config.GetConnectionString(),
 		table:            config.Table,
 		Database:         config.Database,
-		// OnCreate:         config.OnCreate,
+		// onCreateFn:         config.onCreateFn,
 
 		ConnectionKey: pgContextKey(config.Table),
 	}
@@ -103,6 +104,10 @@ func (m *PostgreSqlJsonDataStore[T]) Open(ctx context.Context, config interface{
 	m.returnConnection(ctx, conn)
 
 	return err
+}
+
+func (m *PostgreSqlJsonDataStore[T]) OnCreate(fn func(ctx context.Context, ds datastore.JsonDataStore[T]) error) {
+	m.onCreateFn = fn
 }
 
 // For Transactions and long operations with the datastore consider
@@ -235,8 +240,8 @@ func (m *PostgreSqlJsonDataStore[T]) GetAll(ctx context.Context) ([]*T, error) {
 	if len(rtn) == 0 {
 		cloudy.Info(ctx, "PostgreSqlJsonDataStore.GetAll %s is empty. Attempting to re-initialize", m.table)
 
-		if m.OnCreate != nil {
-			err := m.OnCreate(ctx, m)
+		if m.onCreateFn != nil {
+			err := m.onCreateFn(ctx, m)
 			if err != nil {
 				_ = cloudy.Error(ctx, "Unable to initialize table: %v, %v\n", m.table, err)
 				return rtn, nil
@@ -255,7 +260,7 @@ func (m *PostgreSqlJsonDataStore[T]) GetAll(ctx context.Context) ([]*T, error) {
 
 			return newRtn, nil
 		} else {
-			cloudy.Info(ctx, "table %s has no oncreate function", m.table)
+			cloudy.Info(ctx, "table %s has no oncreateFn function", m.table)
 		}
 	}
 
@@ -383,8 +388,8 @@ func (m *PostgreSqlJsonDataStore[T]) checkConnection(ctx context.Context) (*pgxp
 		}
 
 		// Load any Default Data
-		if m.OnCreate != nil {
-			err := m.OnCreate(ctx, m)
+		if m.onCreateFn != nil {
+			err := m.onCreateFn(ctx, m)
 			if err != nil {
 				return nil, cloudy.Error(ctx, "Unable to initialize table: %v, %v\n", m.table, err)
 			}
@@ -413,7 +418,10 @@ func (m *PostgreSqlJsonDataStore[T]) Query(ctx context.Context, query *datastore
 	var rtn []*T
 	for rows.Next() {
 		var model T
-		rows.Scan(&model)
+		err = rows.Scan(&model)
+		if err != nil {
+			return nil, cloudy.Error(ctx, "Error querying database : %v", err)
+		}
 		rtn = append(rtn, &model)
 	}
 

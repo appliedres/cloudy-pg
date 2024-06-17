@@ -2,7 +2,7 @@ package cloudypg
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/appliedres/cloudy"
@@ -13,76 +13,103 @@ import (
 
 const PostgresProviderID = "postgresql"
 
-// func init() {
-// 	datastore.JsonDataStoreProviders.Register(PostgresProviderID, &PostgreSqlJsonDataStoreFactory{})
-// }
+func init() {
+	datastore.JsonDataStoreProviders.Register(PostgresProviderID, &PostgreSqlJsonDataStoreFactory{})
+}
 
-// type PostgreSqlJsonDataStoreFactory struct{}
+type PostgreSqlJsonDataStoreFactory struct {
+	PostgreSqlConfig
+}
 
-// func (c *PostgreSqlJsonDataStoreFactory) Create(cfg interface{}) (datastore.UntypedJsonDataStore, error) {
-// 	config := cfg.(*PostgreSqlConfig)
-// 	return &UntypedPostgreSqlJsonDataStore{
-// 		connectionString: config.GetConnectionString(),
-// 		table:            config.Table,
-// 		Database:         config.Database,
-// 		// OnCreate:         config.OnCreate,
+func (c *PostgreSqlJsonDataStoreFactory) Create(cfg interface{}) (datastore.UntypedJsonDataStore, error) {
+	//TODO: FIXME
+	config := cfg.(*PostgreSqlConfig)
+	uconfig := &UntypedPostgreSqlConfig{
+		PostgreSqlConfig: *config,
+	}
 
-// 		ConnectionKey: pgContextKey(config.Table),
-// 	}, nil
-// }
+	result := NewUntypedPostgreSqlJsonDataStore(context.Background(), uconfig)
+	return result, nil
+	// return &UntypedPostgreSqlJsonDataStore{
+	// 	connectionString: config.GetConnectionString(),
+	// 	Database:         config.Database,
+	// 	ConnectionKey:    pgContextKey(config.Table),
+	// }, nil
+}
 
-// func (c *PostgreSqlJsonDataStoreFactory) FromEnv(env *cloudy.Environment) (interface{}, error) {
-// 	var found bool
-// 	cfg := &PostgreSqlConfig{}
+func (c *PostgreSqlJsonDataStoreFactory) FromEnv(env *cloudy.Environment) (interface{}, error) {
+	cfg := &PostgreSqlConfig{}
 
-// 	cfg.Connection, _ = cloudy.MapKeyStr(config, "Connection", true)
-// 	cfg.User, _ = cloudy.MapKeyStr(config, "User", true)
-// 	cfg.Host, _ = cloudy.MapKeyStr(config, "Host", true)
-// 	cfg.Password, _ = cloudy.MapKeyStr(config, "Password", true)
-// 	cfg.Database, _ = cloudy.MapKeyStr(config, "Database", true)
+	cfg.Connection = env.Get("Connection")
+	cfg.User = env.Get("User")
+	cfg.Host = env.Get("Host")
+	cfg.Password = env.Get("Password")
+	cfg.Database = env.Get("Database")
 
-// 	// Check that either Connection or (user,Host,Pass, database) is present
-// 	if cfg.Connection != "" || (cfg.User != "" && cfg.Host != "" && cfg.Password != "" && cfg.Database != "") {
-// 		return nil, errors.New("connection or User,Host,Password,Database must be specified")
-// 	}
+	// Check that either Connection or (user,Host,Pass, database) is present
+	if cfg.Connection != "" || (cfg.User != "" && cfg.Host != "" && cfg.Password != "" && cfg.Database != "") {
+		return nil, errors.New("connection or User,Host,Password,Database must be specified")
+	}
 
-// 	cfg.Table, found = cloudy.MapKeyStr(config, "Table", true)
-// 	if !found {
-// 		return nil, errors.New("table required")
-// 	}
+	return cfg, nil
+}
 
-// 	return cfg, nil
-// }
+func (c *PostgreSqlJsonDataStoreFactory) CreateJsonDatastore(ctx context.Context, typename string, prefix string, idField string) datastore.UntypedJsonDataStore {
+	return NewUntypedPostgreSqlJsonDataStore(ctx, &UntypedPostgreSqlConfig{
+		PostgreSqlConfig{
+			Connection: c.GetConnectionString(),
+			Table:      typename,
+			Database:   c.Database,
+		},
+	})
+}
 
 type UntypedPostgreSqlConfig struct {
 	PostgreSqlConfig
-	Model interface{}
-	// OnCreate   func(ctx context.Context, ds datastore.JsonDataStore) error
 }
 
 type UntypedPostgreSqlJsonDataStore struct {
-	model            interface{}
-	connectionString string
+	// connectionString string
 	// client           *pgx.Conn
-	Database      string
+	// Database      string
 	table         string
 	ConnectionKey pgContextKey
-	pool          *pgxpool.Pool
-	OnCreate      func(ctx context.Context, ds *UntypedPostgreSqlJsonDataStore) error
-	Model         interface{}
+	// pool          *pgxpool.Pool
+	provider PostgresqlConnectionProvider
+	onCreate func(ctx context.Context, ds datastore.UntypedJsonDataStore) error
 }
 
 func NewUntypedPostgreSqlJsonDataStore(ctx context.Context, config *UntypedPostgreSqlConfig) *UntypedPostgreSqlJsonDataStore {
+	connstr := ConnectionString(config.Host, config.User, config.Password, config.Database)
+	provider := NewDedicatedPostgreSQLConnectionProvider(connstr)
+
 	// Generate Conne
 	return &UntypedPostgreSqlJsonDataStore{
-		connectionString: config.GetConnectionString(),
-		table:            config.Table,
-		Database:         config.Database,
-		Model:            config.Model,
-		// OnCreate:         config.OnCreate,
-
+		// connectionString: config.GetConnectionString(),
+		provider:      provider,
+		table:         config.Table,
 		ConnectionKey: pgContextKey(config.Table),
 	}
+}
+
+func NewUntypedPostgreSqlJsonDataStoreWithProvider(ctx context.Context, table string, provider PostgresqlConnectionProvider) *UntypedPostgreSqlJsonDataStore {
+	// Generate Conne
+	return &UntypedPostgreSqlJsonDataStore{
+		table:         table,
+		provider:      provider,
+		ConnectionKey: pgContextKey(table),
+	}
+}
+
+type PostgresqlConnectionProvider interface {
+	// Acquire A connection
+	Acquire(ctx context.Context) (*pgxpool.Conn, error)
+
+	// Return a connection
+	Return(ctx context.Context, conn *pgxpool.Conn)
+
+	// Close Database
+	Close(ctx context.Context) error
 }
 
 // SAME
@@ -130,28 +157,32 @@ func (m *UntypedPostgreSqlJsonDataStore) ReturnConnectionContext(ctx context.Con
 }
 
 func (m *UntypedPostgreSqlJsonDataStore) Close(ctx context.Context) error {
-	if m.pool != nil {
-		m.pool.Close()
-	}
+	// if m.pool != nil {
+	// 	m.pool.Close()
+	// }
 	return nil
+}
+
+func (m *UntypedPostgreSqlJsonDataStore) OnCreate(fn func(ctx context.Context, ds datastore.UntypedJsonDataStore) error) {
+	m.onCreate = fn
 }
 
 // Save an item to the MongoDB. This is implemented as an Upsert to this will work
 // for new items as well as updates.
-func (m *UntypedPostgreSqlJsonDataStore) Save(ctx context.Context, item interface{}, key string) error {
+func (m *UntypedPostgreSqlJsonDataStore) Save(ctx context.Context, item []byte, key string) error {
 	conn, err := m.checkConnection(ctx)
 	if err != nil {
 		return err
 	}
 	defer m.returnConnection(ctx, conn)
 
-	modelJson, err := json.Marshal(item)
-	if err != nil {
-		return cloudy.Error(ctx, "Error marshalling item into json : %v", err)
-	}
+	// modelJson, err := json.Marshal(item)
+	// if err != nil {
+	// 	return cloudy.Error(ctx, "Error marshalling item into json : %v", err)
+	// }
 
 	sqlUpsert := fmt.Sprintf(`INSERT INTO %v (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data=$2;`, m.table)
-	_, err = conn.Exec(ctx, sqlUpsert, key, modelJson)
+	_, err = conn.Exec(ctx, sqlUpsert, key, item)
 	if err != nil {
 		return cloudy.Error(ctx, "Error marshalling item into json : %v", err)
 	}
@@ -159,7 +190,7 @@ func (m *UntypedPostgreSqlJsonDataStore) Save(ctx context.Context, item interfac
 	return nil
 }
 
-func (m *UntypedPostgreSqlJsonDataStore) Get(ctx context.Context, key string) (interface{}, error) {
+func (m *UntypedPostgreSqlJsonDataStore) Get(ctx context.Context, key string) ([]byte, error) {
 	conn, err := m.checkConnection(ctx)
 	if err != nil {
 		return nil, err
@@ -174,18 +205,18 @@ func (m *UntypedPostgreSqlJsonDataStore) Get(ctx context.Context, key string) (i
 
 	defer rows.Close()
 	if rows.Next() {
-		instance := cloudy.NewInstance(m.Model)
-		err = rows.Scan(&instance)
+		var jsonResult []byte
+		err = rows.Scan(&jsonResult)
 		if err != nil {
 			return nil, cloudy.Error(ctx, "Error scaning into struct : %v", err)
 		}
-		return &instance, nil
+		return jsonResult, nil
 	} else {
 		return nil, nil
 	}
 }
 
-func (m *UntypedPostgreSqlJsonDataStore) GetAll(ctx context.Context) ([]interface{}, error) {
+func (m *UntypedPostgreSqlJsonDataStore) GetAll(ctx context.Context) ([][]byte, error) {
 	conn, err := m.checkConnection(ctx)
 	if err != nil {
 		return nil, err
@@ -198,16 +229,16 @@ func (m *UntypedPostgreSqlJsonDataStore) GetAll(ctx context.Context) ([]interfac
 		return nil, cloudy.Error(ctx, "Error querying database : %v", err)
 	}
 
-	var rtn []interface{}
+	var rtn [][]byte
 
 	defer rows.Close()
 	for rows.Next() {
-		instance := cloudy.NewInstance(m.Model)
-		err = rows.Scan(&instance)
+		var jsonResult []byte
+		err = rows.Scan(&jsonResult)
 		if err != nil {
 			return nil, cloudy.Error(ctx, "Error scaning into struct : %v", err)
 		}
-		rtn = append(rtn, &instance)
+		rtn = append(rtn, jsonResult)
 	}
 
 	return rtn, nil
@@ -261,7 +292,12 @@ func (m *UntypedPostgreSqlJsonDataStore) returnConnection(ctx context.Context, c
 		return
 	}
 
-	conn.Release()
+	if m.provider != nil {
+		m.provider.Return(ctx, conn)
+	} else {
+		conn.Release()
+	}
+
 }
 
 func (m *UntypedPostgreSqlJsonDataStore) checkConnection(ctx context.Context) (*pgxpool.Conn, error) {
@@ -274,24 +310,28 @@ func (m *UntypedPostgreSqlJsonDataStore) checkConnection(ctx context.Context) (*
 		return obj.(*pgxpool.Conn), nil
 	}
 
-	// Check to see if there is a connection pool already created
-	if m.pool != nil {
-		conn, err = m.pool.Acquire(ctx)
-		return conn, err
+	if m.provider == nil {
+		return nil, errors.New("no connection provider")
 	}
 
-	config, err := pgxpool.ParseConfig(m.connectionString)
-	if err != nil {
-		return nil, cloudy.Error(ctx, "Unable to configure databsze: %v\n", err)
-	}
+	// // Check to see if there is a connection pool already created
+	// if m.pool != nil {
+	// 	conn, err = m.pool.Acquire(ctx)
+	// 	return conn, err
+	// }
 
-	pool, err := pgxpool.ConnectConfig(ctx, config)
-	if err != nil {
-		return nil, cloudy.Error(ctx, "Unable to connect to database: %v\n", err)
-	}
-	m.pool = pool
+	// config, err := pgxpool.ParseConfig(m.connectionString)
+	// if err != nil {
+	// 	return nil, cloudy.Error(ctx, "Unable to configure databsze: %v\n", err)
+	// }
 
-	conn, err = m.pool.Acquire(ctx)
+	// pool, err := pgxpool.ConnectConfig(ctx, config)
+	// if err != nil {
+	// 	return nil, cloudy.Error(ctx, "Unable to connect to database: %v\n", err)
+	// }
+	// m.pool = pool
+
+	conn, err = m.provider.Acquire(ctx)
 	if err != nil {
 		return nil, cloudy.Error(ctx, "Unable to aquire connection to database: %v\n", err)
 	}
@@ -327,8 +367,8 @@ func (m *UntypedPostgreSqlJsonDataStore) checkConnection(ctx context.Context) (*
 		}
 
 		// Load any Default Data
-		if m.OnCreate != nil {
-			err := m.OnCreate(ctx, m)
+		if m.onCreate != nil {
+			err := m.onCreate(ctx, m)
 			if err != nil {
 				return nil, cloudy.Error(ctx, "Unable to initialize table: %v, %v\n", m.table, err)
 			}
@@ -339,7 +379,7 @@ func (m *UntypedPostgreSqlJsonDataStore) checkConnection(ctx context.Context) (*
 	return conn, nil
 }
 
-func (m *UntypedPostgreSqlJsonDataStore) Query(ctx context.Context, query *datastore.SimpleQuery) ([]interface{}, error) {
+func (m *UntypedPostgreSqlJsonDataStore) Query(ctx context.Context, query *datastore.SimpleQuery) ([][]byte, error) {
 	conn, err := m.checkConnection(ctx)
 	if err != nil {
 		return nil, err
@@ -354,11 +394,14 @@ func (m *UntypedPostgreSqlJsonDataStore) Query(ctx context.Context, query *datas
 	}
 
 	defer rows.Close()
-	var rtn []interface{}
+	var rtn [][]byte
 	for rows.Next() {
-		model := cloudy.NewInstance(m.Model)
-		rows.Scan(&model)
-		rtn = append(rtn, &model)
+		var jsonResult []byte
+		err = rows.Scan(&jsonResult)
+		if err != nil {
+			return rtn, err
+		}
+		rtn = append(rtn, jsonResult)
 	}
 
 	return rtn, nil
