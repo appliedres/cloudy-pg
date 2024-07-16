@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,8 +35,12 @@ func (cfg *PostgreSqlConfig) GetConnectionString() string {
 	if cfg.Connection != "" {
 		return cfg.Connection
 	}
+	port := "5432"
+	if cfg.Port != 0 {
+		port = strconv.Itoa(int(cfg.Port))
+	}
 
-	return fmt.Sprintf("postgres://%v:%v@%v:5432/%v", cfg.User, cfg.Password, cfg.Host, cfg.Database)
+	return fmt.Sprintf("postgres://%v:%v@%v:%v/%v", cfg.User, cfg.Password, cfg.Host, port, cfg.Database)
 }
 
 func ConfigFromMap(m map[string]interface{}) (*PostgreSqlConfig, error) {
@@ -483,10 +488,11 @@ func (qc *PgQueryConverter) ConvertSort(sortbys []*datastore.SortBy) string {
 	return strings.Join(sorts, ", ")
 }
 func (qc *PgQueryConverter) ConvertASort(c *datastore.SortBy) string {
+	f := fmt.Sprintf("data->>'%v'", c.Field)
 	if c.Descending {
-		return c.Field + " DESC"
+		return f + " DESC"
 	} else {
-		return c.Field + "ASC"
+		return f + "ASC"
 	}
 }
 
