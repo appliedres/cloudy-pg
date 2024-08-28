@@ -7,7 +7,7 @@ import (
 )
 
 func TestLeader(t *testing.T) {
-	cfg := CreatePostgresqlContainer(t)
+	cfg := CreateDefaultPostgresqlContainer(t)
 
 	leader := NewPgLeader()
 	err := leader.Connect(cfg)

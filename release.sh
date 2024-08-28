@@ -133,11 +133,7 @@ else
 fi
 
 if [[ $upgrade == 'yes' ]]; then
-    update user-api
-    update folders-api
-    update cac-api
-    update go-arkloud
-
+    update arkloud-api
 else 
     echo "Client update skipped"
 fi
