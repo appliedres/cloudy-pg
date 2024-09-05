@@ -437,41 +437,42 @@ type PgQueryConverter struct {
 }
 
 func (qc *PgQueryConverter) Convert(c *datastore.SimpleQuery, table string) string {
-	where := qc.ConvertConditionGroup(c.Conditions)
-	sort := qc.ConvertSort(c.SortBy)
-
 	sql := qc.ConvertSelect(c, table)
+
+	where := qc.ConvertConditionGroup(c.Conditions)
 	if where != "" {
-		sql = sql + " WHERE " + where
+		sql += fmt.Sprintf(" WHERE %s", where)
 	}
+
+	sort := qc.ConvertSort(c.SortBy)
 	if sort != "" {
-		sql = sql + " ORDER BY " + sort
+		sql += fmt.Sprintf(" ORDER BY %s", sort)
 	}
+
+	if c.Size > 0 {
+		sql += fmt.Sprintf(" LIMIT %v", c.Size)
+	}
+
+	if c.Offset > 0 {
+		sql += fmt.Sprintf(" OFFSET %v", c.Offset)
+	}
+
+	// SELECT columns FROM table where conditions limit offset
 	return sql
 }
 
 func (qc *PgQueryConverter) ConvertSelect(c *datastore.SimpleQuery, table string) string {
-	str := "SELECT "
-	if len(c.Colums) == 0 {
-		str += " data"
-	} else {
-		var jsonQuery []string
+	columns := "data"
+
+	if len(c.Colums) > 0 {
+		jsonQuery := []string{columns}
 		for _, col := range c.Colums {
 			jsonQuery = append(jsonQuery, fmt.Sprintf("data ->> '%v' as \"%v\"", col, col))
 		}
-		str += strings.Join(jsonQuery, ", ")
+		columns = strings.Join(jsonQuery, ", ")
 	}
 
-	if c.Size > 0 {
-		str = fmt.Sprintf("%v LIMIT %v", str, c.Size)
-	}
-
-	if c.Offset > 0 {
-		str = fmt.Sprintf("%v OFFSET %v", str, c.Offset)
-	}
-
-	str += " FROM " + table
-	return str
+	return fmt.Sprintf("SELECT %s FROM %s", columns, table)
 }
 
 func (qc *PgQueryConverter) ConvertSort(sortbys []*datastore.SortBy) string {
@@ -487,12 +488,13 @@ func (qc *PgQueryConverter) ConvertSort(sortbys []*datastore.SortBy) string {
 	}
 	return strings.Join(sorts, ", ")
 }
+
 func (qc *PgQueryConverter) ConvertASort(c *datastore.SortBy) string {
 	f := fmt.Sprintf("data->>'%v'", c.Field)
 	if c.Descending {
 		return f + " DESC"
 	} else {
-		return f + "ASC"
+		return f + " ASC"
 	}
 }
 
@@ -517,14 +519,16 @@ func (qc *PgQueryConverter) ConvertCondition(c *datastore.SimpleQueryCondition) 
 		if !val.IsZero() {
 			timestr := val.UTC().Format(time.RFC3339)
 			// return fmt.Sprintf("(data->'%v')::timestamptz < '%v'", c.Data[0], timestr)
-			return fmt.Sprintf("to_date((data->>'%v'), 'YYYY-MM-DDTHH24:MI:SS.MSZ') < '%v'", c.Data[0], timestr)
+			// return fmt.Sprintf("to_date((data->>'%v'), 'YYYY-MM-DDTHH24:MI:SS.MSZ') < '%v'", c.Data[0], timestr)
+			return fmt.Sprintf("data->>'%v' < '%v'", c.Data[0], timestr)
 		}
 	case "after":
 		val := c.GetDate("value")
 		if !val.IsZero() {
 			timestr := val.UTC().Format(time.RFC3339)
 			// return fmt.Sprintf("(data->'%v')::timestamptz > '%v'", c.Data[0], timestr)
-			return fmt.Sprintf("to_date((data->>'%v'), 'YYYY-MM-DDTHH24:MI:SS.MSZ') > '%v'", c.Data[0], timestr)
+			// return fmt.Sprintf("to_date((data->>'%v'), 'YYYY-MM-DDTHH24:MI:SS.MSZ') > '%v'", c.Data[0], timestr)
+			return fmt.Sprintf("data->>'%v' > '%v'", c.Data[0], timestr)
 		}
 	case "?":
 		return fmt.Sprintf("(data->>'%v')::numeric  ? '%v'", c.Data[0], c.Data[1])
