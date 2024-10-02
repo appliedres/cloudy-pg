@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/appliedres/cloudy"
 	"github.com/appliedres/cloudy/datastore"
-
-	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 const PostgresProviderID = "postgresql"
@@ -68,6 +70,8 @@ type UntypedPostgreSqlConfig struct {
 	PostgreSqlConfig
 }
 
+var _ datastore.UntypedJsonDataStore = (*UntypedPostgreSqlJsonDataStore)(nil)
+
 type UntypedPostgreSqlJsonDataStore struct {
 	// connectionString string
 	// client           *pgx.Conn
@@ -80,7 +84,7 @@ type UntypedPostgreSqlJsonDataStore struct {
 }
 
 func NewUntypedPostgreSqlJsonDataStore(ctx context.Context, config *UntypedPostgreSqlConfig) *UntypedPostgreSqlJsonDataStore {
-	connstr := ConnectionString(config.Host, config.User, config.Password, config.Database)
+	connstr := ConnectionString(config.Host, config.User, config.Password, config.Database, int(config.Port))
 	provider := NewDedicatedPostgreSQLConnectionProvider(connstr)
 
 	// Generate Conne
@@ -387,7 +391,6 @@ func (m *UntypedPostgreSqlJsonDataStore) Query(ctx context.Context, query *datas
 	defer m.returnConnection(ctx, conn)
 
 	sql := new(PgQueryConverter).Convert(query, m.table)
-	fmt.Println(sql)
 	rows, err := conn.Query(ctx, sql)
 	if err != nil {
 		return nil, cloudy.Error(ctx, "Error querying database : %v", err)
@@ -405,4 +408,155 @@ func (m *UntypedPostgreSqlJsonDataStore) Query(ctx context.Context, query *datas
 	}
 
 	return rtn, nil
+}
+
+// Save an item to the MongoDB. This is implemented as an Upsert to this will work
+// for new items as well as updates.
+func (m *UntypedPostgreSqlJsonDataStore) QueryAndUpdate(ctx context.Context, query *datastore.SimpleQuery, updater func(ctx context.Context, items [][]byte) ([][]byte, error)) ([][]byte, error) {
+	conn, err := m.checkConnection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer m.returnConnection(ctx, conn)
+
+	sql := new(PgQueryConverter).Convert(query, m.table)
+
+	var updated [][]byte
+	// All this runs in a single transaction
+	err = pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+		sql = strings.Replace(sql, "SELECT", "SELECT FOR UPDATE", 1)
+		rows, err := conn.Query(ctx, sql)
+		if err != nil {
+			return err
+		}
+
+		defer rows.Close()
+		var rtn [][]byte
+		for rows.Next() {
+			var jsonResult []byte
+			err = rows.Scan(&jsonResult)
+			if err != nil {
+				return err
+			}
+			rtn = append(rtn, jsonResult)
+		}
+
+		updated, err = updater(ctx, rtn)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// Save an item to the MongoDB. This is implemented as an Upsert to this will work
+// for new items as well as updates.
+func (m *UntypedPostgreSqlJsonDataStore) SaveAll(ctx context.Context, item [][]byte, key []string) error {
+	conn, err := m.checkConnection(ctx)
+	if err != nil {
+		return err
+	}
+	defer m.returnConnection(ctx, conn)
+
+	batch := &pgx.Batch{}
+	for i := range key {
+		sqlUpsert := fmt.Sprintf(`INSERT INTO %v (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data=$2;`, m.table)
+		batch.Queue(sqlUpsert, key[i], item[i])
+	}
+
+	br := conn.SendBatch(ctx, batch)
+	_, err = br.Exec()
+	if err != nil {
+		return err
+	}
+
+	err = br.Close()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Save an item to the MongoDB. This is implemented as an Upsert to this will work
+// for new items as well as updates.
+func (m *UntypedPostgreSqlJsonDataStore) DeleteAll(ctx context.Context, key []string) error {
+	conn, err := m.checkConnection(ctx)
+	if err != nil {
+		return err
+	}
+	defer m.returnConnection(ctx, conn)
+
+	batch := &pgx.Batch{}
+	for i := range key {
+		sqlDelete := fmt.Sprintf(`DELETE FROM %v where ID=$1`, m.table)
+		batch.Queue(sqlDelete, key[i])
+	}
+
+	br := conn.SendBatch(ctx, batch)
+	_, err = br.Exec()
+	if err != nil {
+		return err
+	}
+	err = br.Close()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *UntypedPostgreSqlJsonDataStore) QueryAsMap(ctx context.Context, query *datastore.SimpleQuery) ([]map[string]any, error) {
+	conn, err := m.checkConnection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer m.returnConnection(ctx, conn)
+
+	sql := new(PgQueryConverter).Convert(query, m.table)
+
+	rows, err := conn.Query(ctx, sql)
+	if err != nil {
+		return nil, cloudy.Error(ctx, "Error querying database : %v", err)
+	}
+	rtn, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (map[string]interface{}, error) {
+		return pgx.RowToMap(row)
+	})
+
+	return rtn, nil
+}
+
+func (m *UntypedPostgreSqlJsonDataStore) QueryTable(ctx context.Context, query *datastore.SimpleQuery) ([][]interface{}, error) {
+	conn, err := m.checkConnection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer m.returnConnection(ctx, conn)
+
+	sql := new(PgQueryConverter).Convert(query, m.table)
+	// Fix the SQL
+	// sql = strings.Replace(sql, "SELECT data ,", "SELECT ", 1)
+
+	rows, err := conn.Query(ctx, sql)
+	if err != nil {
+		return nil, cloudy.Error(ctx, "Error querying database : %v", err)
+	}
+
+	defer rows.Close()
+	var rtn [][]interface{}
+	for rows.Next() {
+		vals, err := rows.Values()
+		if err != nil {
+			return rtn, err
+		}
+		rtn = append(rtn, vals)
+	}
+
+	return rtn, nil
+}
+
+type Column struct {
+	Column string
+	Label  string
+	Data   interface{}
 }

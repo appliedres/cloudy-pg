@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/appliedres/cloudy"
-	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 type DedicatedPostgreSQLConnectionProvider struct {
@@ -39,7 +41,7 @@ func (db *DedicatedPostgreSQLConnectionProvider) Connect(ctx context.Context, co
 		return cloudy.Error(ctx, "Unable to configure databsze: %v\n", err)
 	}
 
-	pool, err := pgxpool.ConnectConfig(ctx, pgconfig)
+	pool, err := pgxpool.NewWithConfig(ctx, pgconfig)
 	if err != nil {
 		return cloudy.Error(ctx, "Unable to connect to database: %v\n", err)
 	}
@@ -80,4 +82,9 @@ func ConnectionString(host string, user string, password string, database string
 		host,
 		pgPort,
 		database)
+}
+
+func Connect(ctx context.Context, cfg *PostgreSqlConfig) (*pgx.Conn, error) {
+	connstr := ConnectionString(cfg.Host, cfg.User, cfg.Password, cfg.Database, int(cfg.Port))
+	return pgx.Connect(ctx, connstr)
 }

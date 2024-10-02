@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/appliedres/cloudy"
 	"github.com/appliedres/cloudy/datastore"
-
-	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 /*
@@ -350,7 +350,7 @@ func (m *PostgreSqlJsonDataStore[T]) checkConnection(ctx context.Context) (*pgxp
 		return nil, cloudy.Error(ctx, "Unable to configure databsze: %v\n", err)
 	}
 
-	pool, err := pgxpool.ConnectConfig(ctx, config)
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, cloudy.Error(ctx, "Unable to connect to database: %v\n", err)
 	}

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/appliedres/cloudy"
-	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v5"
 )
 
 var _ cloudy.LeaderElector = (*PgLeader)(nil)
