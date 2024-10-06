@@ -105,17 +105,6 @@ func NewUntypedPostgreSqlJsonDataStoreWithProvider(ctx context.Context, table st
 	}
 }
 
-type PostgresqlConnectionProvider interface {
-	// Acquire A connection
-	Acquire(ctx context.Context) (*pgxpool.Conn, error)
-
-	// Return a connection
-	Return(ctx context.Context, conn *pgxpool.Conn)
-
-	// Close Database
-	Close(ctx context.Context) error
-}
-
 // SAME
 func (m *UntypedPostgreSqlJsonDataStore) Open(ctx context.Context, config interface{}) error {
 	cloudy.Info(ctx, "Openning UntypedPostgreSqlJsonDataStore %v", m.table)

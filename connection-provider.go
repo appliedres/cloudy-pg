@@ -88,3 +88,6 @@ func Connect(ctx context.Context, cfg *PostgreSqlConfig) (*pgx.Conn, error) {
 	connstr := ConnectionString(cfg.Host, cfg.User, cfg.Password, cfg.Database, int(cfg.Port))
 	return pgx.Connect(ctx, connstr)
 }
+func ConnStringFrom(ctx context.Context, cfg *PostgreSqlConfig) string {
+	return ConnectionString(cfg.Host, cfg.User, cfg.Password, cfg.Database, int(cfg.Port))
+}

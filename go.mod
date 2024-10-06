@@ -7,15 +7,15 @@ toolchain go1.23.0
 // replace github.com/appliedres/cloudy => ../cloudy
 
 require (
-	github.com/appliedres/cloudy v0.0.43
+	github.com/appliedres/cloudy v0.0.44
 	github.com/jackc/pgx/v5 v5.5.4
+	github.com/stretchr/testify v1.9.0
 )
 
 require (
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
-	github.com/stretchr/testify v1.9.0 // indirect
 	golang.org/x/sync v0.3.0 // indirect
 )
 
