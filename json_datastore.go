@@ -275,6 +275,7 @@ func (ds *JsonDataStore[T]) QueryAndUpdate(ctx context.Context, query *datastore
 		})
 
 		updated, err = updater(ctx, rtn)
+
 		return err
 	})
 	if err != nil {

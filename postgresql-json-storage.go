@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Jeffail/gabs/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/appliedres/cloudy"
@@ -467,7 +468,7 @@ func (qc *PgQueryConverter) ConvertSelect(c *datastore.SimpleQuery, table string
 	if len(c.Colums) > 0 {
 		jsonQuery := []string{columns}
 		for _, col := range c.Colums {
-			jsonQuery = append(jsonQuery, fmt.Sprintf("data ->> '%v' as \"%v\"", col, col))
+			jsonQuery = append(jsonQuery, fmt.Sprintf("%v as \"%v\"", qc.toField(col), col))
 		}
 		columns = strings.Join(jsonQuery, ", ")
 	}
@@ -490,50 +491,61 @@ func (qc *PgQueryConverter) ConvertSort(sortbys []*datastore.SortBy) string {
 }
 
 func (qc *PgQueryConverter) ConvertASort(c *datastore.SortBy) string {
-	f := fmt.Sprintf("data->>'%v'", c.Field)
+	f := qc.toField(c.Field)
 	if c.Descending {
 		return f + " DESC"
 	} else {
 		return f + " ASC"
 	}
 }
+func (qc *PgQueryConverter) toField(path string) string {
+	p := gabs.DotPathToSlice(path)
+	if len(p) > 1 {
+		last := p[len(p)-1] // Get the last element
+		leading := p[:len(p)-1]
+		path = fmt.Sprintf("->'%v'->>'%v'", strings.Join(leading, "'->'"), last)
+	} else {
+		path = fmt.Sprintf("->>'%v'", path)
+	}
+	return fmt.Sprintf("data%v", path)
+}
 
 func (qc *PgQueryConverter) ConvertCondition(c *datastore.SimpleQueryCondition) string {
 	switch c.Type {
 	case "eq":
-		return fmt.Sprintf("(data->>'%v') = '%v'", c.Data[0], c.Data[1])
+		return fmt.Sprintf("(%v) = '%v'", qc.toField(c.Data[0]), c.Data[1])
 	case "neq":
-		return fmt.Sprintf("(data->>'%v') != '%v'", c.Data[0], c.Data[1])
+		return fmt.Sprintf("(%v) != '%v'", qc.toField(c.Data[0]), c.Data[1])
 	case "between":
-		return fmt.Sprintf("(data->>'%v')::numeric BETWEEN %v AND %v", c.Data[0], c.Data[1], c.Data[2])
+		return fmt.Sprintf("(%v)::numeric BETWEEN %v AND %v", qc.toField(c.Data[0]), c.Data[1], c.Data[2])
 	case "lt":
-		return fmt.Sprintf("(data->>'%v')::numeric < %v", c.Data[0], c.Data[1])
+		return fmt.Sprintf("(%v)::numeric < %v", qc.toField(c.Data[0]), c.Data[1])
 	case "lte":
-		return fmt.Sprintf("(data->>'%v')::numeric  <= %v", c.Data[0], c.Data[1])
+		return fmt.Sprintf("(%v)::numeric  <= %v", qc.toField(c.Data[0]), c.Data[1])
 	case "gt":
-		return fmt.Sprintf("(data->>'%v')::numeric  > %v", c.Data[0], c.Data[1])
+		return fmt.Sprintf("(%v)::numeric  > %v", qc.toField(c.Data[0]), c.Data[1])
 	case "gte":
-		return fmt.Sprintf("(data->>'%v')::numeric  >= %v", c.Data[0], c.Data[1])
+		return fmt.Sprintf("(%v)::numeric  >= %v", qc.toField(c.Data[0]), c.Data[1])
 	case "before":
 		val := c.GetDate("value")
 		if !val.IsZero() {
 			timestr := val.UTC().Format(time.RFC3339)
 			// return fmt.Sprintf("(data->'%v')::timestamptz < '%v'", c.Data[0], timestr)
-			// return fmt.Sprintf("to_date((data->>'%v'), 'YYYY-MM-DDTHH24:MI:SS.MSZ') < '%v'", c.Data[0], timestr)
-			return fmt.Sprintf("data->>'%v' < '%v'", c.Data[0], timestr)
+			// return fmt.Sprintf("to_date((%v), 'YYYY-MM-DDTHH24:MI:SS.MSZ') < '%v'", c.Data[0], timestr)
+			return fmt.Sprintf("(%v) < '%v'", qc.toField(c.Data[0]), timestr)
 		}
 	case "after":
 		val := c.GetDate("value")
 		if !val.IsZero() {
 			timestr := val.UTC().Format(time.RFC3339)
 			// return fmt.Sprintf("(data->'%v')::timestamptz > '%v'", c.Data[0], timestr)
-			// return fmt.Sprintf("to_date((data->>'%v'), 'YYYY-MM-DDTHH24:MI:SS.MSZ') > '%v'", c.Data[0], timestr)
-			return fmt.Sprintf("data->>'%v' > '%v'", c.Data[0], timestr)
+			// return fmt.Sprintf("to_date((%v), 'YYYY-MM-DDTHH24:MI:SS.MSZ') > '%v'", c.Data[0], timestr)
+			return fmt.Sprintf("(%v) > '%v'", qc.toField(c.Data[0]), timestr)
 		}
 	case "?":
-		return fmt.Sprintf("(data->>'%v')::numeric  ? '%v'", c.Data[0], c.Data[1])
+		return fmt.Sprintf("(%v)::numeric  ? '%v'", qc.toField(c.Data[0]), c.Data[1])
 	case "contains":
-		return fmt.Sprintf("(data->'%v')::jsonb ? '%v'", c.Data[0], c.Data[1])
+		return fmt.Sprintf("(data->'%v')::jsonb ? '%v'", qc.toField(c.Data[0]), c.Data[1])
 	case "includes":
 		values := c.GetStringArr("value")
 		var xformed []string
@@ -541,10 +553,10 @@ func (qc *PgQueryConverter) ConvertCondition(c *datastore.SimpleQueryCondition) 
 			xformed = append(xformed, fmt.Sprintf("'%v'", v))
 		}
 		if values != nil {
-			return fmt.Sprintf("(data->>'%v') in (%v)", c.Data[0], strings.Join(xformed, ","))
+			return fmt.Sprintf("(%v) in (%v)", qc.toField(c.Data[0]), strings.Join(xformed, ","))
 		}
 	case "null":
-		return fmt.Sprintf("(data->'%v') IS NULL", c.Data[0])
+		return fmt.Sprintf("(%v) IS NULL", qc.toField(c.Data[0]))
 	}
 	return "UNKNOWN"
 }
@@ -568,5 +580,5 @@ func (qc *PgQueryConverter) ConvertConditionGroup(cg *datastore.SimpleQueryCondi
 }
 
 func (qc *PgQueryConverter) ToColumnName(name string) string {
-	return "data ->> " + name
+	return qc.toField(name)
 }

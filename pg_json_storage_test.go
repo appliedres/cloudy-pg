@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/require"
 
 	"github.com/appliedres/cloudy"
 	"github.com/appliedres/cloudy/datastore"
@@ -18,6 +19,15 @@ type testData struct {
 	ID        string `json:"id"`
 	TimeStamp strfmt.DateTime
 	Count     int64
+	Level1    *Level1 `json:"level1"`
+}
+
+type Level1 struct {
+	Value  string  `json:"value"`
+	Level2 *Level2 `json:"level2"`
+}
+type Level2 struct {
+	Value string `json:"level2value"`
 }
 
 func RandomInt(max int64, min ...int64) int64 {
@@ -36,6 +46,12 @@ func randomTestData() (*testData, []byte) {
 		ID:        cloudy.GenerateId("TD", 20),
 		TimeStamp: strfmt.DateTime(time.Now()),
 		Count:     RandomInt(10000),
+		Level1: &Level1{
+			Value: "Embed",
+			Level2: &Level2{
+				Value: "Level2",
+			},
+		},
 	}
 
 	data, _ := json.Marshal(td)
@@ -68,6 +84,15 @@ func TestQueryTable(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	q1 := datastore.NewQuery()
+	q1.Conditions.Equals("level1.level2.level2value", "Level2")
+
+	r1, err := ds.Query(ctx, q1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	require.Equal(t, len(r1), 4)
+
 	q := datastore.NewQuery()
 	q.Colums = []string{"id", "TimeStamp", "Count"}
 
@@ -78,4 +103,5 @@ func TestQueryTable(t *testing.T) {
 	for _, row := range results {
 		fmt.Printf("%v\t%v\t%v\n", row[0], row[1], row[2])
 	}
+
 }
