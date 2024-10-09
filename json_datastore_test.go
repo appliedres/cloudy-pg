@@ -1,6 +1,7 @@
 package cloudypg
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -94,5 +95,42 @@ func TestJsonDataStoreQuery1(t *testing.T) {
 	require.NoError(t, err)
 	fmt.Printf("Checking %v is After %v: %v\n", tQuery, isBefore, len(items4) > 0)
 	require.True(t, len(items4) > 0)
+
+}
+
+func TestJsonDatastoreQueryAndUpdate(t *testing.T) {
+	ctx := cloudy.StartContext()
+	cfg := CreateDefaultPostgresqlContainer(t)
+
+	connStr := ConnStringFrom(ctx, cfg)
+
+	p := NewDedicatedPostgreSQLConnectionProvider(connStr)
+	ds := NewJsonDatastore[datastore.TestItem](ctx, p, "testitems")
+
+	err := ds.Open(ctx, nil)
+	require.NoError(t, err)
+
+	item := &datastore.TestItem{
+		ID:   "1234",
+		Name: "MyName",
+	}
+
+	err = ds.Save(ctx, item, item.ID)
+	require.NoError(t, err)
+
+	q := datastore.NewQuery()
+	q.Conditions.Equals("id", "1234")
+
+	items, err := ds.QueryAndUpdate(ctx, q, func(ctx context.Context, items []*datastore.TestItem) ([]*datastore.TestItem, error) {
+		items[0].Name = "Updated"
+		err := ds.Save(ctx, items[0], items[0].ID)
+		return items, err
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, items)
+
+	item2, err := ds.Get(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, item2.Name, "Updated")
 
 }

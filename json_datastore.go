@@ -265,6 +265,7 @@ func (ds *JsonDataStore[T]) QueryAndUpdate(ctx context.Context, query *datastore
 			return err
 		}
 
+		ctx = ds.CtxSetConnection(ctx, conn)
 		rtn, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*T, error) {
 			var jsonResult []byte
 			err = rows.Scan(&jsonResult)
@@ -329,4 +330,16 @@ func (ds *JsonDataStore[T]) QueryTable(ctx context.Context, query *datastore.Sim
 		rtn = append(rtn, vals)
 	}
 	return rtn, nil
+}
+
+func (ds *JsonDataStore[T]) CtxSetConnection(ctx context.Context, conn *pgxpool.Conn) context.Context {
+	return context.WithValue(ctx, ds.ConnectionKey, conn)
+}
+
+func (ds *JsonDataStore[T]) CtxGetConnection(ctx context.Context) *pgxpool.Conn {
+	obj := ctx.Value(ds.ConnectionKey)
+	if obj != nil {
+		return obj.(*pgxpool.Conn)
+	}
+	return nil
 }
