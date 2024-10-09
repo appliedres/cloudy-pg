@@ -259,7 +259,7 @@ func (ds *JsonDataStore[T]) QueryAndUpdate(ctx context.Context, query *datastore
 
 	// All this runs in a single transaction
 	err = pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
-		sql = strings.Replace(sql, "SELECT", "SELECT FOR UPDATE", 1)
+		sql = sql + " FOR UPDATE"
 		rows, err := conn.Query(ctx, sql)
 		if err != nil {
 			return err
