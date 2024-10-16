@@ -27,7 +27,8 @@ type Level1 struct {
 	Level2 *Level2 `json:"level2"`
 }
 type Level2 struct {
-	Value string `json:"level2value"`
+	Value string   `json:"level2value"`
+	Parts []string `json:"level2parts"`
 }
 
 func RandomInt(max int64, min ...int64) int64 {
@@ -50,6 +51,7 @@ func randomTestData() (*testData, []byte) {
 			Value: "Embed",
 			Level2: &Level2{
 				Value: "Level2",
+				Parts: []string{"ABC", "DEF"},
 			},
 		},
 	}
@@ -104,4 +106,48 @@ func TestQueryTable(t *testing.T) {
 		fmt.Printf("%v\t%v\t%v\n", row[0], row[1], row[2])
 	}
 
+	q2 := datastore.NewQuery()
+	q2.Conditions.Contains("level1.level2.level2parts", "ABC")
+
+	r2, err := ds.Query(ctx, q2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	require.Equal(t, len(r2), 4)
+}
+
+func TestQueryContains(t *testing.T) {
+	cfg := CreateDefaultPostgresqlContainer(t)
+	cfg.Table = "testdata"
+	ctx := cloudy.StartContext()
+	ucfg := &UntypedPostgreSqlConfig{
+		PostgreSqlConfig: *cfg,
+	}
+	ds := NewUntypedPostgreSqlJsonDataStore(ctx, ucfg)
+	err := ds.Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	td1, tdb1 := randomTestData()
+	td2, tdb2 := randomTestData()
+	td3, tdb3 := randomTestData()
+	td4, tdb4 := randomTestData()
+
+	data := [][]byte{tdb1, tdb2, tdb3, tdb4}
+	keys := []string{td1.ID, td2.ID, td3.ID, td4.ID}
+
+	err = ds.SaveAll(ctx, data, keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	q2 := datastore.NewQuery()
+	q2.Conditions.Contains("level1.level2.level2parts", "DEF")
+
+	r2, err := ds.Query(ctx, q2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	require.Equal(t, len(r2), 4)
 }

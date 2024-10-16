@@ -84,6 +84,17 @@ func (qc *PgQueryConverter) toField(path string) string {
 	}
 	return fmt.Sprintf("data%v", path)
 }
+func (qc *PgQueryConverter) toFieldArr(path string) string {
+	p := gabs.DotPathToSlice(path)
+	if len(p) > 1 {
+		last := p[len(p)-1] // Get the last element
+		leading := p[:len(p)-1]
+		path = fmt.Sprintf("->'%v'->'%v'", strings.Join(leading, "'->'"), last)
+	} else {
+		path = fmt.Sprintf("->'%v'", path)
+	}
+	return fmt.Sprintf("data%v", path)
+}
 
 func (qc *PgQueryConverter) ConvertCondition(c *datastore.SimpleQueryCondition) string {
 	switch c.Type {
@@ -120,7 +131,7 @@ func (qc *PgQueryConverter) ConvertCondition(c *datastore.SimpleQueryCondition) 
 	case "?":
 		return fmt.Sprintf("(%v)::numeric  ? '%v'", qc.toField(c.Data[0]), c.Data[1])
 	case "contains":
-		return fmt.Sprintf("(data->'%v')::jsonb ? '%v'", qc.toField(c.Data[0]), c.Data[1])
+		return fmt.Sprintf("(%v)::jsonb @> '[\"%v\"]'", qc.toFieldArr(c.Data[0]), c.Data[1])
 	case "includes":
 		values := c.GetStringArr("value")
 		var xformed []string
