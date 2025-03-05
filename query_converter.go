@@ -73,6 +73,18 @@ func (qc *PgQueryConverter) ConvertASort(c *datastore.SortBy) string {
 		return f + " ASC"
 	}
 }
+func (qc *PgQueryConverter) toJsonField(path string) string {
+	p := gabs.DotPathToSlice(path)
+	if len(p) > 1 {
+		last := p[len(p)-1] // Get the last element
+		leading := p[:len(p)-1]
+		path = fmt.Sprintf("->'%v'->'%v'", strings.Join(leading, "'->'"), last)
+	} else {
+		path = fmt.Sprintf("->'%v'", path)
+	}
+	return fmt.Sprintf("data%v", path)
+}
+
 func (qc *PgQueryConverter) toField(path string) string {
 	p := gabs.DotPathToSlice(path)
 	if len(p) > 1 {
@@ -141,6 +153,17 @@ func (qc *PgQueryConverter) ConvertCondition(c *datastore.SimpleQueryCondition) 
 		if values != nil {
 			return fmt.Sprintf("(%v) in (%v)", qc.toField(c.Data[0]), strings.Join(xformed, ","))
 		}
+	case "in":
+		return fmt.Sprintf("(%v)::jsonb ? '%v'", qc.toJsonField(c.Data[0]), c.Data[1])
+		// return "(data::jsonb->'users' ? 'test-user@example.com')"
+	case "anyin":
+		values := c.GetStringArr("value")
+		var xformed []string
+		for _, v := range values {
+			xformed = append(xformed, fmt.Sprintf("'%v'", v))
+		}
+		vals := strings.Join(xformed, ",")
+		return fmt.Sprintf("(%v)::jsonb  ?| ARRAY[%v]", qc.toJsonField(c.Data[0]), vals)
 	case "null":
 		return fmt.Sprintf("(%v) IS NULL", qc.toField(c.Data[0]))
 	}
