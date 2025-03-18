@@ -14,6 +14,7 @@ import (
 )
 
 var _ datatype.JsonDataStore[string] = (*JsonDataStore[string])(nil)
+var _ datatype.BulkJsonDataStore[string] = (*JsonDataStore[string])(nil)
 
 type JsonDataStore[T any] struct {
 	provider      PostgresqlConnectionProvider
@@ -180,6 +181,83 @@ func (ds *JsonDataStore[T]) Delete(ctx context.Context, key string) error {
 		return fmt.Errorf("error deleteing %v from %v : %v", key, ds.table, err)
 	}
 	return nil
+}
+
+// Deletes an item
+func (ds *JsonDataStore[T]) DeleteAll(ctx context.Context, key []string) error {
+	conn, err := ds.checkConnection(ctx)
+	if err != nil {
+		return err
+	}
+	defer ds.returnConnection(ctx, conn)
+
+	sqlDelete := fmt.Sprintf(`DELETE FROM %v WHERE ID IN ('%v')`, ds.table, strings.Join(key, "','"))
+	_, err = conn.Exec(ctx, sqlDelete)
+	if err != nil {
+		return fmt.Errorf("error deleteing %v from  %v", ds.table, err)
+	}
+	return nil
+}
+
+func (m *JsonDataStore[T]) SaveAll(ctx context.Context, items []*T, key []string) error {
+
+	conn, err := m.checkConnection(ctx)
+	if err != nil {
+		return err
+	}
+	defer m.returnConnection(ctx, conn)
+
+	// Create a
+	err = pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+		for _, item := range items {
+			data, err := toByte(item)
+			if err != nil {
+				return fmt.Errorf("error converting to json, %v", err)
+			}
+
+			sqlUpsert := fmt.Sprintf(`INSERT INTO %v (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data=$2;`, m.table)
+			_, err = conn.Exec(ctx, sqlUpsert, key, data)
+			if err != nil {
+				return fmt.Errorf("database error, %v", err)
+			}
+		}
+		return nil
+	})
+	return err
+}
+
+func (m *JsonDataStore[T]) DeleteQuery(ctx context.Context, query *datastore.SimpleQuery) ([]string, error) {
+	conn, err := m.checkConnection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer m.returnConnection(ctx, conn)
+
+	sql := new(PgQueryConverter).ConvertDelete(query, m.table)
+
+	// Execute the query
+	rows, err := conn.Query(ctx, sql)
+	if err != nil {
+		return nil, fmt.Errorf("delete query failed: %w", err)
+	}
+	defer rows.Close()
+
+	// Collect the returned IDs
+	var deletedIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return deletedIDs, fmt.Errorf("error scanning row: %w", err)
+		}
+		deletedIDs = append(deletedIDs, id)
+	}
+
+	// Check for any errors encountered during iteration
+	if err := rows.Err(); err != nil {
+		return deletedIDs, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return deletedIDs, nil
 }
 
 // Checks to see if a key exists

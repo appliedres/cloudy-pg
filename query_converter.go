@@ -12,29 +12,106 @@ import (
 type PgQueryConverter struct {
 }
 
-func (qc *PgQueryConverter) Convert(c *datastore.SimpleQuery, table string) string {
-	sql := qc.ConvertSelect(c, table)
-
-	where := qc.ConvertConditionGroup(c.Conditions)
+func (qc *PgQueryConverter) Convert(q *datastore.SimpleQuery, table string) string {
+	// Build Basic Query
+	sql := qc.ConvertSelect(q, table)
+	where := qc.ConvertConditionGroup(q.Conditions)
 	if where != "" {
 		sql += fmt.Sprintf(" WHERE %s", where)
 	}
-
-	sort := qc.ConvertSort(c.SortBy)
+	sort := qc.ConvertSort(q.SortBy)
 	if sort != "" {
 		sql += fmt.Sprintf(" ORDER BY %s", sort)
 	}
-
-	if c.Size > 0 {
-		sql += fmt.Sprintf(" LIMIT %v", c.Size)
+	if q.Size > 0 {
+		sql += fmt.Sprintf(" LIMIT %v", q.Size)
+	}
+	if q.Offset > 0 {
+		sql += fmt.Sprintf(" OFFSET %v", q.Offset)
 	}
 
-	if c.Offset > 0 {
-		sql += fmt.Sprintf(" OFFSET %v", c.Offset)
+	if q.RecurseConfig == nil {
+		return sql
 	}
 
-	// SELECT columns FROM table where conditions limit offset
-	return sql
+	// Build Recursive Query
+	sqlRecurse := `WITH RECURSIVE hierarchy AS (
+		-- Base case
+		{SQL}
+		
+		UNION ALL
+		
+		-- Recursive part: get parent rows
+		SELECT t.data
+		FROM {TABLE} t
+		JOIN hierarchy h ON t.{ID} = h.{PARENT}
+	)
+	SELECT data FROM hierarchy`
+
+	sqlFixed := strings.ReplaceAll(sqlRecurse, "{SQL}", sql)
+	sqlFixed = strings.ReplaceAll(sqlFixed, "{TABLE}", table)
+	sqlFixed = strings.ReplaceAll(sqlFixed, "{ID}", qc.toField(q.RecurseConfig.ToField))
+	sqlFixed = strings.ReplaceAll(sqlFixed, "{PARENT}", qc.toField(q.RecurseConfig.FromField))
+
+	return sqlFixed
+}
+
+func (qc *PgQueryConverter) ConvertDelete(q *datastore.SimpleQuery, table string) string {
+	if q.RecurseConfig == nil {
+		where := qc.ConvertConditionGroup(q.Conditions)
+		if where != "" {
+			return fmt.Sprintf("DELETE FROM %s WHERE %s", table, where)
+		}
+		return fmt.Sprintf("DELETE FROM %s", table)
+	}
+
+	// Recursive Delete
+	// 1. Build Recursive Query
+
+	// Build Basic Query
+	sql := qc.ConvertSelect(q, table)
+
+	where := qc.ConvertConditionGroup(q.Conditions)
+	if where != "" {
+		sql += fmt.Sprintf(" WHERE %s", where)
+	}
+	sort := qc.ConvertSort(q.SortBy)
+	if sort != "" {
+		sql += fmt.Sprintf(" ORDER BY %s", sort)
+	}
+	if q.Size > 0 {
+		sql += fmt.Sprintf(" LIMIT %v", q.Size)
+	}
+	if q.Offset > 0 {
+		sql += fmt.Sprintf(" OFFSET %v", q.Offset)
+	}
+
+	if q.RecurseConfig == nil {
+		return sql
+	}
+
+	// Build Recursive Query
+	sqlRecurse := `WITH RECURSIVE hierarchy AS (
+		-- Base case
+		{SQL}
+		
+		UNION ALL
+		
+		-- Recursive part: get parent rows
+		SELECT t.data
+		FROM {TABLE} t
+		JOIN hierarchy h ON t.{ID} = h.{PARENT}
+	)
+	DELETE FROM {TABLE}
+	WHERE ID IN (SELECT ID FROM hierarchy)
+	RETURNING ID`
+
+	sqlFixed := strings.ReplaceAll(sqlRecurse, "{SQL}", sql)
+	sqlFixed = strings.ReplaceAll(sqlFixed, "{TABLE}", table)
+	sqlFixed = strings.ReplaceAll(sqlFixed, "{ID}", qc.toField(q.RecurseConfig.ToField))
+	sqlFixed = strings.ReplaceAll(sqlFixed, "{PARENT}", qc.toField(q.RecurseConfig.FromField))
+
+	return sqlFixed
 }
 
 func (qc *PgQueryConverter) ConvertSelect(c *datastore.SimpleQuery, table string) string {
@@ -166,6 +243,7 @@ func (qc *PgQueryConverter) ConvertCondition(c *datastore.SimpleQueryCondition) 
 		return fmt.Sprintf("(%v)::jsonb  ?| ARRAY[%v]", qc.toJsonField(c.Data[0]), vals)
 	case "null":
 		return fmt.Sprintf("(%v) IS NULL", qc.toField(c.Data[0]))
+
 	}
 	return "UNKNOWN"
 }

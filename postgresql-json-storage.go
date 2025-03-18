@@ -431,3 +431,37 @@ func (m *PostgreSqlJsonDataStore[T]) Query(ctx context.Context, query *datastore
 
 	return rtn, nil
 }
+
+func (m *PostgreSqlJsonDataStore[T]) DeleteQuery(ctx context.Context, query *datastore.SimpleQuery) ([]string, error) {
+	conn, err := m.checkConnection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer m.returnConnection(ctx, conn)
+
+	sql := new(PgQueryConverter).ConvertDelete(query, m.table)
+
+	// Execute the query
+	rows, err := conn.Query(ctx, sql)
+	if err != nil {
+		return nil, fmt.Errorf("delete query failed: %w", err)
+	}
+	defer rows.Close()
+
+	// Collect the returned IDs
+	var deletedIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return deletedIDs, fmt.Errorf("error scanning row: %w", err)
+		}
+		deletedIDs = append(deletedIDs, id)
+	}
+
+	// Check for any errors encountered during iteration
+	if err := rows.Err(); err != nil {
+		return deletedIDs, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return deletedIDs, nil
+}

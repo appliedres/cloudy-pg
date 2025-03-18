@@ -13,8 +13,108 @@ import (
 )
 
 type TestItem struct {
-	ID   string `json:"id"`
-	Name string
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Parent string `json:"parent"`
+}
+
+func TestRecursiveParentQuery(t *testing.T) {
+
+	root := &TestItem{
+		ID:   "1",
+		Name: "Root",
+	}
+
+	level1 := &TestItem{
+		ID:     "2",
+		Name:   "Level 1",
+		Parent: root.ID,
+	}
+
+	level2 := &TestItem{
+		ID:     "3",
+		Name:   "Level 2",
+		Parent: level1.ID,
+	}
+
+	ctx := cloudy.StartContext()
+	cfg := CreateDefaultPostgresqlContainer(t)
+
+	connStr := ConnStringFrom(ctx, cfg)
+
+	p := NewDedicatedPostgreSQLConnectionProvider(connStr)
+	ds := NewJsonDatastore[TestItem](ctx, p, "testitems")
+
+	// Save
+	require.NoError(t, ds.Save(ctx, root, root.ID))
+	require.NoError(t, ds.Save(ctx, level1, level1.ID))
+	require.NoError(t, ds.Save(ctx, level2, level2.ID))
+
+	// Query
+	t.Run("Query Up", func(t *testing.T) {
+		q := datastore.NewQuery()
+		q.Conditions.Equals("id", level2.ID)
+		q.Recurse("parent", "id")
+		items, err := ds.Query(ctx, q)
+		require.NoError(t, err)
+		require.Len(t, items, 3)
+		require.Equal(t, items[0].ID, level2.ID)
+		require.Equal(t, items[1].ID, level1.ID)
+		require.Equal(t, items[2].ID, root.ID)
+	})
+
+	// Now check DOWN
+	t.Run("Query Down", func(t *testing.T) {
+		q := datastore.NewQuery()
+		q.Conditions.Equals("id", root.ID)
+		q.Recurse("id", "parent")
+		items, err := ds.Query(ctx, q)
+		require.NoError(t, err)
+		require.Len(t, items, 3)
+		require.Equal(t, items[0].ID, root.ID)
+		require.Equal(t, items[1].ID, level1.ID)
+		require.Equal(t, items[2].ID, level2.ID)
+	})
+
+	// Noow check down in the middle
+
+	t.Run("Query Down", func(t *testing.T) {
+		q := datastore.NewQuery()
+		q.Conditions.Equals("id", level1.ID)
+		q.Recurse("id", "parent")
+		items, err := ds.Query(ctx, q)
+		require.NoError(t, err)
+		require.Len(t, items, 2)
+		require.Equal(t, items[0].ID, level1.ID)
+		require.Equal(t, items[1].ID, level2.ID)
+	})
+
+	t.Run("Query Down", func(t *testing.T) {
+		q := datastore.NewQuery()
+		q.Conditions.Equals("name", level1.Name)
+		q.Recurse("id", "parent")
+		items, err := ds.Query(ctx, q)
+		require.NoError(t, err)
+		require.Len(t, items, 2)
+		require.Equal(t, items[0].ID, level1.ID)
+		require.Equal(t, items[1].ID, level2.ID)
+	})
+
+	t.Run("Query Down and DELETE", func(t *testing.T) {
+		q := datastore.NewQuery()
+		q.Conditions.Equals("id", root.ID)
+		q.Recurse("id", "parent")
+		ids, err := ds.DeleteQuery(ctx, q)
+		require.NoError(t, err)
+		require.Len(t, ids, 3)
+		require.Equal(t, ids[0], root.ID)
+		require.Equal(t, ids[1], level1.ID)
+		require.Equal(t, ids[2], level2.ID)
+
+		all, err := ds.GetAll(ctx)
+		require.NoError(t, err)
+		require.Empty(t, all)
+	})
 }
 
 func TestJsonDatastore(t *testing.T) {

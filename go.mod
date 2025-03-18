@@ -7,7 +7,7 @@ toolchain go1.23.0
 // replace github.com/appliedres/cloudy => ../cloudy
 
 require (
-	github.com/appliedres/cloudy v0.0.63
+	github.com/appliedres/cloudy v0.0.66
 	github.com/jackc/pgx/v5 v5.5.4
 	github.com/stretchr/testify v1.9.0
 )
