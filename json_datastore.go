@@ -209,14 +209,13 @@ func (m *JsonDataStore[T]) SaveAll(ctx context.Context, items []*T, key []string
 
 	// Create a
 	err = pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
-		for _, item := range items {
+		for i, item := range items {
 			data, err := toByte(item)
 			if err != nil {
 				return fmt.Errorf("error converting to json, %v", err)
 			}
-
 			sqlUpsert := fmt.Sprintf(`INSERT INTO %v (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data=$2;`, m.table)
-			_, err = conn.Exec(ctx, sqlUpsert, key, data)
+			_, err = conn.Exec(ctx, sqlUpsert, key[i], data)
 			if err != nil {
 				return fmt.Errorf("database error, %v", err)
 			}

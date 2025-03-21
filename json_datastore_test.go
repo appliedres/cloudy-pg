@@ -143,6 +143,49 @@ func TestJsonDatastore(t *testing.T) {
 
 }
 
+func TestIDWithDash(t *testing.T) {
+	td := &testData{
+		ID:        "uvm-j8oxaig3z9g",
+		TimeStamp: strfmt.DateTime(time.Now()),
+		Count:     RandomInt(10000),
+	}
+	td2 := &testData{
+		ID:        "uvm-j8oxaig3z9g2",
+		TimeStamp: strfmt.DateTime(time.Now()),
+		Count:     RandomInt(10000),
+	}
+
+	ctx := cloudy.StartContext()
+	cfg := CreateDefaultPostgresqlContainer(t)
+
+	connStr := ConnStringFrom(ctx, cfg)
+
+	p := NewDedicatedPostgreSQLConnectionProvider(connStr)
+	ds := NewJsonDatastore[testData](ctx, p, "testitems")
+
+	items := []*testData{td, td2}
+	ids := []string{td.ID, td2.ID}
+
+	require.NoError(t, ds.SaveAll(ctx, items, ids))
+}
+func TestSaveAll(t *testing.T) {
+	td := &testData{
+		ID:        "uvm-j8oxaig3z9g",
+		TimeStamp: strfmt.DateTime(time.Now()),
+		Count:     RandomInt(10000),
+	}
+
+	ctx := cloudy.StartContext()
+	cfg := CreateDefaultPostgresqlContainer(t)
+
+	connStr := ConnStringFrom(ctx, cfg)
+
+	p := NewDedicatedPostgreSQLConnectionProvider(connStr)
+	ds := NewJsonDatastore[testData](ctx, p, "testitems")
+
+	require.NoError(t, ds.Save(ctx, td, td.ID))
+}
+
 func TestJsonDataStoreQuery1(t *testing.T) {
 	ctx := cloudy.StartContext()
 	cfg := CreateDefaultPostgresqlContainer(t)
