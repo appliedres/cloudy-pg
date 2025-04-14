@@ -7,7 +7,7 @@ toolchain go1.23.0
 // replace github.com/appliedres/cloudy => ../cloudy
 
 require (
-	github.com/appliedres/cloudy v0.0.66
+	github.com/appliedres/cloudy v0.0.69
 	github.com/jackc/pgx/v5 v5.5.4
 	github.com/stretchr/testify v1.9.0
 )
@@ -19,6 +19,7 @@ require (
 	github.com/go-openapi/loads v0.22.0 // indirect
 	github.com/go-openapi/spec v0.21.0 // indirect
 	github.com/go-openapi/validate v0.24.0 // indirect
+	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
@@ -49,7 +50,6 @@ require (
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/go-openapi/swag v0.23.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
