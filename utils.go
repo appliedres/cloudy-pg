@@ -1,6 +1,7 @@
 package cloudypg
 
 import (
+	"bytes"
 	"encoding/json"
 	"regexp"
 )
@@ -14,11 +15,27 @@ func SanitizeConnectionString(connectionString string) string {
 }
 
 func toByte(i any) ([]byte, error) {
-	return json.Marshal(i)
+	data, err := json.Marshal(i)
+	if err != nil {
+		return nil, err
+	}
+	// Remove null bytes from the data
+	data = RemoveNullBytes(data)
+	return data, nil
 }
 
 func fromByte[T any](data []byte) (*T, error) {
 	var v T
 	err := json.Unmarshal(data, &v)
 	return &v, err
+}
+
+func RemoveNullBytes(data []byte) []byte {
+	var buf bytes.Buffer
+	for _, b := range data {
+		if b != 0 {
+			buf.WriteByte(b)
+		}
+	}
+	return buf.Bytes()
 }

@@ -4,12 +4,42 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/appliedres/cloudy"
 )
+
+/*
+The PostgreSqlJsonDataStore is meant to be used with a single table. That table has the definition of:
+ID: varchar2(30) PRIMARY KEY, DATA : jso
+*/
+type pgContextKey string
+
+type PostgreSqlConfig struct {
+	Table      string
+	Connection string
+	User       string
+	Host       string
+	Password   string
+	Database   string
+	Port       uint16
+	// onCreateFn   func(ctx context.Context, ds datastore.JsonDataStore[T]) error
+}
+
+func (cfg *PostgreSqlConfig) GetConnectionString() string {
+	if cfg.Connection != "" {
+		return cfg.Connection
+	}
+	port := "5432"
+	if cfg.Port != 0 {
+		port = strconv.Itoa(int(cfg.Port))
+	}
+
+	return fmt.Sprintf("postgres://%v:%v@%v:%v/%v", cfg.User, cfg.Password, cfg.Host, port, cfg.Database)
+}
 
 type DedicatedPostgreSQLConnectionProvider struct {
 	connstr string

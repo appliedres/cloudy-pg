@@ -19,6 +19,10 @@ type KeyValueStore struct {
 	encryptionKey string
 }
 
+type SecureKeyValueStore struct {
+	KeyValueStore
+}
+
 func NewKeyValueStore(ctx context.Context, tablename string, conn *pgx.Conn) (*KeyValueStore, error) {
 	kv := &KeyValueStore{
 		conn:  conn,

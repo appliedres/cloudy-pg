@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -12,35 +11,6 @@ import (
 	"github.com/appliedres/cloudy"
 	"github.com/appliedres/cloudy/datastore"
 )
-
-/*
-The PostgreSqlJsonDataStore is meant to be used with a single table. That table has the definition of:
-ID: varchar2(30) PRIMARY KEY, DATA : jso
-*/
-type pgContextKey string
-
-type PostgreSqlConfig struct {
-	Table      string
-	Connection string
-	User       string
-	Host       string
-	Password   string
-	Database   string
-	Port       uint16
-	// onCreateFn   func(ctx context.Context, ds datastore.JsonDataStore[T]) error
-}
-
-func (cfg *PostgreSqlConfig) GetConnectionString() string {
-	if cfg.Connection != "" {
-		return cfg.Connection
-	}
-	port := "5432"
-	if cfg.Port != 0 {
-		port = strconv.Itoa(int(cfg.Port))
-	}
-
-	return fmt.Sprintf("postgres://%v:%v@%v:%v/%v", cfg.User, cfg.Password, cfg.Host, port, cfg.Database)
-}
 
 func ConfigFromMap(m map[string]interface{}) (*PostgreSqlConfig, error) {
 	user, _ := cloudy.EnvKeyStr(m, "user")
@@ -167,6 +137,9 @@ func (m *PostgreSqlJsonDataStore[T]) Save(ctx context.Context, item *T, key stri
 	if err != nil {
 		return cloudy.Error(ctx, "Error marshalling item into json : %v", err)
 	}
+
+	// Null bytes bad
+	modelJson = RemoveNullBytes(modelJson)
 
 	// Not writing to cloudy to prevent build log duplication
 	fmt.Printf("Writing to the database %s table %s: %v\n", m.Database, m.table, string(modelJson))

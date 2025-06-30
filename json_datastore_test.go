@@ -2,6 +2,7 @@ package cloudypg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -44,6 +45,8 @@ func TestRecursiveParentQuery(t *testing.T) {
 
 	p := NewDedicatedPostgreSQLConnectionProvider(connStr)
 	ds := NewJsonDatastore[TestItem](ctx, p, "testitems")
+	err := ds.Open(ctx, nil)
+	require.NoError(t, err)
 
 	// Save
 	require.NoError(t, ds.Save(ctx, root, root.ID))
@@ -117,6 +120,59 @@ func TestRecursiveParentQuery(t *testing.T) {
 	})
 }
 
+func TestJsonDatastoreOldData(t *testing.T) {
+	ctx := cloudy.StartContext()
+	cfg := CreateDefaultPostgresqlContainer(t)
+
+	connStr := ConnStringFrom(ctx, cfg)
+
+	p := NewDedicatedPostgreSQLConnectionProvider(connStr)
+	ds := NewJsonDatastore[datastore.TestItem](ctx, p, "testitems")
+
+	// Create a table with the old schema
+	sqlTableCreate := fmt.Sprintf(`
+		CREATE TABLE  IF NOT EXISTS %v (
+			id varchar(200) NOT NULL PRIMARY KEY,
+			version integer DEFAULT 1,
+			last_updated timestamp DEFAULT CURRENT_TIMESTAMP,
+			date_created timestamp DEFAULT CURRENT_TIMESTAMP,
+			data json
+		);`, ds.table)
+
+	conn, err := p.Acquire(ctx)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(ctx, sqlTableCreate)
+	require.NoError(t, err)
+
+	item := &datastore.TestItem{
+		ID:   "12345",
+		Name: "OLD",
+	}
+	data, _ := json.Marshal(item)
+
+	// Now insert a record with the old schema
+	tag, err := conn.Exec(ctx, fmt.Sprintf("INSERT INTO %v (id, data) VALUES ($1, $2)", ds.table), item.ID, data)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), tag.RowsAffected())
+	p.Return(ctx, conn)
+
+	err = ds.Open(ctx, nil)
+	require.NoError(t, err)
+
+	item3, err := ds.Get(ctx, item.ID)
+	require.NoError(t, err)
+	require.NotNil(t, item3)
+	require.Equal(t, item3.ID, item3.ID)
+
+	meta, err := ds.GetMetadata(ctx, item.ID)
+	require.NoError(t, err)
+	require.NotNil(t, meta)
+	require.Equal(t, meta[0].Key, item.ID)
+	require.Equal(t, meta[0].Version, int64(1))
+
+}
+
 func TestJsonDatastore(t *testing.T) {
 	ctx := cloudy.StartContext()
 	cfg := CreateDefaultPostgresqlContainer(t)
@@ -141,6 +197,23 @@ func TestJsonDatastore(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, item2)
 
+	meta, err := ds.GetMetadata(ctx, item.ID)
+	require.NoError(t, err)
+	require.NotNil(t, meta)
+	require.Equal(t, meta[0].Key, item.ID)
+	require.Equal(t, meta[0].Version, int64(1))
+
+	// Now update
+	item.Name = "Name2"
+	err = ds.Save(ctx, item, item.ID)
+	require.NoError(t, err)
+
+	meta2, err := ds.GetMetadata(ctx, item.ID)
+	require.NoError(t, err)
+	require.NotNil(t, meta2)
+	require.Equal(t, meta2[0].Key, item.ID)
+	require.Equal(t, meta2[0].Version, int64(2))
+
 }
 
 func TestIDWithDash(t *testing.T) {
@@ -162,19 +235,16 @@ func TestIDWithDash(t *testing.T) {
 
 	p := NewDedicatedPostgreSQLConnectionProvider(connStr)
 	ds := NewJsonDatastore[testData](ctx, p, "testitems")
+	err := ds.Open(ctx, nil)
+	require.NoError(t, err)
 
 	items := []*testData{td, td2}
 	ids := []string{td.ID, td2.ID}
 
 	require.NoError(t, ds.SaveAll(ctx, items, ids))
 }
-func TestSaveAll(t *testing.T) {
-	td := &testData{
-		ID:        "uvm-j8oxaig3z9g",
-		TimeStamp: strfmt.DateTime(time.Now()),
-		Count:     RandomInt(10000),
-	}
 
+func TestSaveAll(t *testing.T) {
 	ctx := cloudy.StartContext()
 	cfg := CreateDefaultPostgresqlContainer(t)
 
@@ -182,8 +252,32 @@ func TestSaveAll(t *testing.T) {
 
 	p := NewDedicatedPostgreSQLConnectionProvider(connStr)
 	ds := NewJsonDatastore[testData](ctx, p, "testitems")
+	err := ds.Open(ctx, nil)
+	require.NoError(t, err)
 
-	require.NoError(t, ds.Save(ctx, td, td.ID))
+	items := make([]*testData, 10)
+	keys := make([]string, 10)
+	for i := 0; i < 10; i++ {
+		items[i] = &testData{
+			ID:        fmt.Sprintf("item-%v", i),
+			TimeStamp: strfmt.DateTime(time.Now()),
+			Count:     RandomInt(10000),
+		}
+		keys[i] = items[i].ID
+	}
+
+	require.NoError(t, ds.SaveAll(ctx, items, keys), "SaveAll should not error")
+
+	all, err := ds.GetAll(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, 10, "GetAll should return 10 items")
+
+	meta, err := ds.GetMetadata(ctx, keys...)
+	require.NoError(t, err)
+	require.Len(t, meta, 10)
+	for i := 0; i < 10; i++ {
+		require.Equal(t, int64(1), meta[i].Version)
+	}
 }
 
 func TestJsonDataStoreQuery1(t *testing.T) {
@@ -194,6 +288,8 @@ func TestJsonDataStoreQuery1(t *testing.T) {
 
 	p := NewDedicatedPostgreSQLConnectionProvider(connStr)
 	ds := NewJsonDatastore[testData](ctx, p, "testitems")
+	err := ds.Open(ctx, nil)
+	require.NoError(t, err)
 
 	tQuery := time.Date(2000, 01, 01, 0, 0, 0, 0, time.Now().Location())
 	isBefore := tQuery.Add(-10 * time.Second)
@@ -204,7 +300,7 @@ func TestJsonDataStoreQuery1(t *testing.T) {
 		TimeStamp: strfmt.DateTime(tQuery),
 	}
 
-	err := ds.Save(ctx, td1, td1.ID)
+	err = ds.Save(ctx, td1, td1.ID)
 	require.NoError(t, err)
 
 	q := datastore.NewQuery()

@@ -2,19 +2,20 @@ package cloudypg
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/appliedres/cloudy"
 	"github.com/appliedres/cloudy/datastore"
-	"github.com/appliedres/cloudy/datatype"
+	"github.com/appliedres/cloudy/logging"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var _ datatype.JsonDataStore[string] = (*JsonDataStore[string])(nil)
-var _ datatype.BulkJsonDataStore[string] = (*JsonDataStore[string])(nil)
+var _ datastore.JsonDataStore[string] = (*JsonDataStore[string])(nil)
+var _ datastore.BulkJsonDataStore[string] = (*JsonDataStore[string])(nil)
 
 type JsonDataStore[T any] struct {
 	provider      PostgresqlConnectionProvider
@@ -35,8 +36,12 @@ func NewJsonDatastore[T any](ctx context.Context, provider PostgresqlConnectionP
 func (ds *JsonDataStore[T]) Open(ctx context.Context, config any) error {
 	cloudy.Info(ctx, "Openning UntypedPostgreSqlJsonDataStore %v", ds.table)
 	conn, err := ds.checkConnection(ctx)
-	ds.returnConnection(ctx, conn)
+	if err != nil {
+		return err
+	}
+	defer ds.returnConnection(ctx, conn)
 
+	err = ds.onOpen(ctx, conn)
 	return err
 }
 
@@ -85,19 +90,74 @@ func (ds *JsonDataStore[T]) checkConnection(ctx context.Context) (*pgxpool.Conn,
 	}
 
 	// Table does not exist
-	sqlTableCreate := fmt.Sprintf(`
-		CREATE TABLE  IF NOT EXISTS %v (
-			id varchar(200) NOT NULL PRIMARY KEY, 
-			data json NOT NULL
-		);`, ds.table)
+	// sqlTableCreate := fmt.Sprintf(`
+	// 	CREATE TABLE  IF NOT EXISTS %v (
+	// 		id varchar(200) NOT NULL PRIMARY KEY,
+	// 		version integer DEFAULT 1,
+	// 		last_updated timestamp DEFAULT CURRENT_TIMESTAMP,
+	// 		date_created timestamp DEFAULT CURRENT_TIMESTAMP,
+	// 		data json
+	// 	);`, ds.table)
 
-	_, err = conn.Exec(ctx, sqlTableCreate)
-	if err != nil {
-		return nil, cloudy.Error(ctx, "Unable to create table: %v, %v\n", ds.table, err)
-	}
+	// sqlTableCreate := strings.ReplaceAll(createTableSql, "$TABLE$", ds.table)
+
+	// _, err = conn.Exec(ctx, sqlTableCreate)
+	// if err != nil {
+	// 	return nil, cloudy.Error(ctx, "Unable to create table: %v, %v\n", ds.table, err)
+	// }
 
 	return conn, nil
 }
+
+func (ds *JsonDataStore[T]) onOpen(ctx context.Context, conn *pgxpool.Conn) error {
+	sqlTableCreate := strings.ReplaceAll(createTableSql, "$TABLE$", ds.table)
+
+	tag, err := conn.Exec(ctx, sqlTableCreate)
+	if err != nil {
+		return cloudy.Error(ctx, "Unable to create table: %v, %v\n", ds.table, err)
+	}
+	if tag.RowsAffected() > 0 {
+		logging.GetLogger(ctx).DebugContext(ctx, fmt.Sprintf("Created or modified table %v", ds.table))
+	}
+
+	return nil
+}
+
+var createTableSql = `
+DO $$ 
+BEGIN
+    -- Create the table if it does not exist
+    CREATE TABLE IF NOT EXISTS $TABLE$ (
+        id VARCHAR(200) NOT NULL PRIMARY KEY,
+        version INTEGER DEFAULT 1,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        data JSON
+    );
+
+    -- Ensure the table has the required columns
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = '$TABLE$' AND column_name = 'version'
+    ) THEN
+        ALTER TABLE $TABLE$ ADD COLUMN version INTEGER DEFAULT 1;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = '$TABLE$' AND column_name = 'last_updated'
+    ) THEN
+        ALTER TABLE $TABLE$ ADD COLUMN last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = '$TABLE$' AND column_name = 'date_created'
+    ) THEN
+        ALTER TABLE $TABLE$ ADD COLUMN date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    END IF;
+END $$;
+`
 
 // Save stores an item in the datastore. There is no difference
 // between an insert and an update.
@@ -113,13 +173,60 @@ func (ds *JsonDataStore[T]) Save(ctx context.Context, item *T, key string) error
 		return fmt.Errorf("error converting to json, %v", err)
 	}
 
-	sqlUpsert := fmt.Sprintf(`INSERT INTO %v (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data=$2;`, ds.table)
+	sqlUpsert := fmt.Sprintf(`INSERT INTO %v (id, data) VALUES ($1, $2) 
+		ON CONFLICT (id) DO UPDATE 
+		SET version =  %v.version + 1, last_updated = CURRENT_TIMESTAMP, data=$2;`, ds.table, ds.table)
 	_, err = conn.Exec(ctx, sqlUpsert, key, data)
 	if err != nil {
 		return fmt.Errorf("database error, %v", err)
 	}
 
 	return nil
+}
+
+func (ds *JsonDataStore[T]) GetMetadata(ctx context.Context, key ...string) ([]*datastore.RowMetadata, error) {
+	conn, err := ds.checkConnection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer ds.returnConnection(ctx, conn)
+
+	sqlStmt := fmt.Sprintf(`SELECT id, version, last_updated, date_created FROM %v where ID = ANY($1)`, ds.table)
+	rows, err := conn.Query(ctx, sqlStmt, key)
+	if err != nil {
+		return nil, cloudy.Error(ctx, "Error querying database : %v", err)
+	}
+	defer rows.Close()
+
+	rtn, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*datastore.RowMetadata, error) {
+		var id string
+		var version sql.NullInt64
+		var lastUpdated sql.NullTime
+		var dateCreated sql.NullTime
+		err = row.Scan(&id, &version, &lastUpdated, &dateCreated)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("error scaning into struct : %v", err)
+		}
+		meta := &datastore.RowMetadata{
+			Key: id,
+		}
+
+		if version.Valid {
+			meta.Version = version.Int64
+		}
+		if lastUpdated.Valid {
+			meta.LastUpdated = lastUpdated.Time
+		}
+		if dateCreated.Valid {
+			meta.DateCreated = dateCreated.Time
+		}
+
+		return meta, nil
+	})
+	return rtn, err
 }
 
 // Get retrieves an item by it's unique id
@@ -133,6 +240,7 @@ func (ds *JsonDataStore[T]) Get(ctx context.Context, key string) (*T, error) {
 	row := conn.QueryRow(ctx, sql, key)
 
 	var jsonResult []byte
+
 	err = row.Scan(&jsonResult)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -140,6 +248,7 @@ func (ds *JsonDataStore[T]) Get(ctx context.Context, key string) (*T, error) {
 		}
 		return nil, fmt.Errorf("error scaning into struct : %v", err)
 	}
+
 	return fromByte[T](jsonResult)
 }
 
@@ -214,7 +323,11 @@ func (m *JsonDataStore[T]) SaveAll(ctx context.Context, items []*T, key []string
 			if err != nil {
 				return fmt.Errorf("error converting to json, %v", err)
 			}
-			sqlUpsert := fmt.Sprintf(`INSERT INTO %v (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data=$2;`, m.table)
+			sqlUpsert := fmt.Sprintf(`INSERT INTO %v (id, data) VALUES ($1, $2) 
+				ON CONFLICT (id) DO UPDATE 
+				SET version =  %v.version + 1, last_updated = CURRENT_TIMESTAMP, data=$2;`, m.table, m.table)
+			// _, err = conn.Exec(ctx, sqlUpsert, key, data)
+			// sqlUpsert := fmt.Sprintf(`INSERT INTO %v (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data=$2;`, m.table)
 			_, err = conn.Exec(ctx, sqlUpsert, key[i], data)
 			if err != nil {
 				return fmt.Errorf("database error, %v", err)
@@ -419,4 +532,9 @@ func (ds *JsonDataStore[T]) CtxGetConnection(ctx context.Context) *pgxpool.Conn 
 		return obj.(*pgxpool.Conn)
 	}
 	return nil
+}
+
+// DONT USE THIS
+func (ds *JsonDataStore[T]) OnCreate(fn func(ctx context.Context, ds datastore.JsonDataStore[T]) error) {
+
 }
