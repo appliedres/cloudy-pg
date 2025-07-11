@@ -17,6 +17,7 @@ func CreateDefaultPostgresqlContainer(t *testing.T) *PostgreSqlConfig {
 		Database: "test-db",
 		User:     "postgres",
 		Password: "postgres",
+		Image:    "pgvector/pgvector:pg17",
 	}
 
 	return CreatePostgresqlContainer(t, &config)
@@ -27,7 +28,7 @@ func CreatePostgresqlContainer(t *testing.T, config *PostgreSqlConfig) *PostgreS
 	ctx := context.Background()
 
 	pgContainer, err := postgres.RunContainer(ctx,
-		testcontainers.WithImage("postgres:15.3-alpine"),
+		testcontainers.WithImage(config.Image),
 		// postgres.WithInitScripts(filepath.Join("..", "testdata", "init-db.sql")),
 		postgres.WithDatabase(config.Database),
 		postgres.WithUsername(config.User),
@@ -62,5 +63,6 @@ func CreatePostgresqlContainer(t *testing.T, config *PostgreSqlConfig) *PostgreS
 		User:     pgconfig.ConnConfig.User,
 		Port:     pgconfig.ConnConfig.Port,
 		Password: pgconfig.ConnConfig.Password,
+		Image:    config.Image,
 	}
 }

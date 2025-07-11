@@ -26,6 +26,7 @@ type PostgreSqlConfig struct {
 	Password   string
 	Database   string
 	Port       uint16
+	Image      string
 	// onCreateFn   func(ctx context.Context, ds datastore.JsonDataStore[T]) error
 }
 
